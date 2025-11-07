@@ -13,6 +13,7 @@ import {reduxTimeoutMiddleware} from '../shared/utils/reduxTimeout'
 import {combineReducers} from 'redux-immutable';
 import {socketServer, socketStore, socketMiddleware} from './socket';
 import {errorMiddleware} from './middleware/error';
+import analyticsMiddleware from './middleware/analytics';
 
 import {ROOM_AFK_HOST_PERIOD, server$roomAfkHosts} from '../shared/actions/actions';
 
@@ -44,6 +45,7 @@ export default (server, app) => {
       errorMiddleware()
       , thunk
       , reduxTimeoutMiddleware(timeouts)
+      , analyticsMiddleware()
       , socketMiddleware(socket)
     )
   );

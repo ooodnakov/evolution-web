@@ -15,6 +15,7 @@ global.GLOBAL_VERSION = require('./package.json').version;
 process.env.NODE_ENV = process.env.NODE_ENV || 'development';
 global.GLOBAL_BROWSER = false; // defined in configs
 process.env.PORT = process.env.PORT || 3000;
+process.env.ANALYTICS_DASHBOARD_PATH = process.env.ANALYTICS_DASHBOARD_PATH || 'analytics';
 
 module.exports = {
   GLOBAL_VERSION: JSON.stringify(GLOBAL_VERSION)
@@ -23,6 +24,7 @@ module.exports = {
       NODE_ENV: JSON.stringify(process.env.NODE_ENV)
       , PORT: JSON.stringify(process.env.PORT)
       , VK_API_ID: JSON.stringify(process.env.VK_API_ID)
+      , ANALYTICS_DASHBOARD_PATH: JSON.stringify(process.env.ANALYTICS_DASHBOARD_PATH)
     }
   }
 };

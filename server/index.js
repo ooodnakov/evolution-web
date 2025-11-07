@@ -5,13 +5,16 @@ import express from 'express';
 import bodyParser from 'body-parser';
 import configureStore from './configureStore';
 import database from './database';
+import analytics from './analytics';
 
 import frontendDevelopment from './frontend.development';
 import frontendProduction from './frontend.production';
 import webpackConfig from '../webpack.client.babel';
 import 'source-map-support/register'
 
-database.ready.then(() => {
+const initialization = [database.ready, analytics.ready].filter(Boolean);
+
+Promise.all(initialization).then(() => {
   logger.info('NODE_ENV =', process.env.NODE_ENV);
 
   const app = express();
