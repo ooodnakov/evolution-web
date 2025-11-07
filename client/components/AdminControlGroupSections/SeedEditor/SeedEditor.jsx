@@ -18,6 +18,7 @@ import TextField from '@material-ui/core/TextField';
 import Typography from '@material-ui/core/Typography';
 import Checkbox from '@material-ui/core/Checkbox';
 import ListItemText from '@material-ui/core/ListItemText';
+import {makeStyles} from '@material-ui/core/styles';
 
 import DeleteIcon from '@material-ui/icons/Delete';
 import AddIcon from '@material-ui/icons/Add';
@@ -34,7 +35,32 @@ import {
   humanizeKey,
   mergePlayersWithRoom,
   parseSeedString,
+  getTraitBaseKey,
 } from './seedUtils';
+
+const useStyles = makeStyles((theme) => ({
+  animalCard: {
+    padding: theme.spacing(1),
+    marginBottom: theme.spacing(1),
+  },
+  playerCard: {
+    padding: theme.spacing(1.5),
+    marginBottom: theme.spacing(1.5),
+  },
+  editorPaper: {
+    padding: theme.spacing(2),
+  },
+  sectionDivider: {
+    margin: theme.spacing(2, 0),
+  },
+  rawToggleLabel: {
+    display: 'flex',
+    alignItems: 'center',
+  },
+  rawToggleIcon: {
+    marginRight: theme.spacing(0.5),
+  },
+}));
 
 const traitOptions = Object.keys(traitTypes).sort().map((key) => ({
   value: key,
@@ -74,6 +100,7 @@ const seedSettingToggles = [
 const SeedEditor = ({seed, onChange, roomPlayerCount}) => {
   const [{state, error}, setParsedSeed] = useState(() => parseSeedString(seed || defaultSeedString));
   const [showRaw, setShowRaw] = useState(false);
+  const classes = useStyles();
 
   useEffect(() => {
     setParsedSeed(parseSeedString(seed || defaultSeedString));
@@ -81,21 +108,20 @@ const SeedEditor = ({seed, onChange, roomPlayerCount}) => {
 
   useEffect(() => {
     if (!roomPlayerCount) return;
-    setParsedSeed((prev) => {
-      const mergedState = mergePlayersWithRoom(prev.state, roomPlayerCount);
-      if (mergedState.players.length !== prev.state.players.length) {
-        onChange(buildSeedString(mergedState));
-        return {state: mergedState, error: prev.error};
-      }
-      return prev;
-    });
-  }, [roomPlayerCount, onChange]);
+    if (!state) return;
+    if (state.players.length >= roomPlayerCount) return;
+    const mergedState = mergePlayersWithRoom(state, roomPlayerCount);
+    if (mergedState.players.length !== state.players.length) {
+      onChange(buildSeedString(mergedState));
+    }
+  }, [roomPlayerCount, state, onChange]);
 
   const emitChange = (nextState) => {
     const newSeed = buildSeedString(nextState);
     onChange(newSeed);
-    setParsedSeed({state: nextState, error: null});
   };
+
+  const getTraitSelections = (traits) => traits.map((trait) => getTraitBaseKey(trait) || trait);
 
   const handleDeckChange = (index, changes) => {
     const deck = state.deck.map((entry, i) => (i === index ? {...entry, ...changes} : entry));
@@ -174,10 +200,10 @@ const SeedEditor = ({seed, onChange, roomPlayerCount}) => {
     handlePlayerChange(playerIndex, {animals});
   };
 
-  const renderDeckList = (list, onEntryChange, onRemove, options = cardOptions) => (
+  const renderDeckList = (list, onEntryChange, onRemove, options = cardOptions, keyPrefix = 'deck') => (
     <Box>
       {list.map((entry, index) => (
-        <Grid container spacing={1} alignItems='center' key={`deck-${index}`}>
+        <Grid container spacing={1} alignItems='center' key={`${keyPrefix}-${index}`}>
           <Grid item xs={4}>
             <TextField
               label='Count'
@@ -215,11 +241,13 @@ const SeedEditor = ({seed, onChange, roomPlayerCount}) => {
 
   const renderAnimals = (player, playerIndex) => (
     <Box>
-      {player.animals.map((animal, animalIndex) => (
-        <Paper key={`animal-${animalIndex}`} style={{padding: 8, marginBottom: 8}} variant='outlined'>
-          <Grid container spacing={1} alignItems='center'>
-            <Grid item xs={12} sm={4}>
-              <TextField
+      {player.animals.map((animal, animalIndex) => {
+        const traitSelection = getTraitSelections(animal.traits);
+        return (
+          <Paper key={`animal-${animalIndex}`} className={classes.animalCard} variant='outlined'>
+            <Grid container spacing={1} alignItems='center'>
+              <Grid item xs={12} sm={4}>
+                <TextField
                 label='Food tokens'
                 type='number'
                 fullWidth
@@ -228,35 +256,48 @@ const SeedEditor = ({seed, onChange, roomPlayerCount}) => {
                 inputProps={{min: 0}}
               />
             </Grid>
-            <Grid item xs={12} sm={7}>
-              <FormControl fullWidth>
-                <InputLabel id={`traits-${playerIndex}-${animalIndex}`}>Traits</InputLabel>
-                <Select
-                  labelId={`traits-${playerIndex}-${animalIndex}`}
-                  multiple
-                  value={animal.traits}
-                  onChange={(event) => updateAnimal(playerIndex, animalIndex, {traits: event.target.value})}
-                  renderValue={(selected) => (Array.isArray(selected)
-                    ? selected.map((value) => humanizeKey(value)).join(', ')
-                    : humanizeKey(selected))}
-                >
-                  {traitOptions.map((option) => (
-                    <MenuItem key={option.value} value={option.value}>
-                      <Checkbox checked={animal.traits.indexOf(option.value) > -1}/>
+              <Grid item xs={12} sm={7}>
+                <FormControl fullWidth>
+                  <InputLabel id={`traits-${playerIndex}-${animalIndex}`}>Traits</InputLabel>
+                  <Select
+                    labelId={`traits-${playerIndex}-${animalIndex}`}
+                    multiple
+                  value={traitSelection}
+                  onChange={(event) => {
+                    const selectedValue = event.target.value;
+                    const selectedTraits = Array.isArray(selectedValue) ? selectedValue : [selectedValue];
+                    const existingTraits = new Map();
+                    animal.traits.forEach((trait) => {
+                      const baseKey = getTraitBaseKey(trait) || trait;
+                      if (!existingTraits.has(baseKey)) {
+                        existingTraits.set(baseKey, trait);
+                      }
+                    });
+                    const nextTraits = selectedTraits.map((baseKey) => existingTraits.get(baseKey) || baseKey);
+                    updateAnimal(playerIndex, animalIndex, {traits: nextTraits});
+                  }}
+                    renderValue={(selected) => (Array.isArray(selected)
+                      ? selected.map((value) => humanizeKey(value)).join(', ')
+                      : humanizeKey(selected))}
+                  >
+                    {traitOptions.map((option) => (
+                      <MenuItem key={option.value} value={option.value}>
+                      <Checkbox checked={traitSelection.includes(option.value)}/>
                       <ListItemText primary={option.label}/>
                     </MenuItem>
                   ))}
                 </Select>
               </FormControl>
+              </Grid>
+              <Grid item xs={12} sm={1}>
+                <IconButton onClick={() => removeAnimal(playerIndex, animalIndex)} aria-label='Remove animal'>
+                  <DeleteIcon fontSize='small'/>
+                </IconButton>
+              </Grid>
             </Grid>
-            <Grid item xs={12} sm={1}>
-              <IconButton onClick={() => removeAnimal(playerIndex, animalIndex)} aria-label='Remove animal'>
-                <DeleteIcon fontSize='small'/>
-              </IconButton>
-            </Grid>
-          </Grid>
-        </Paper>
-      ))}
+          </Paper>
+        );
+      }))}
       <Button startIcon={<AddIcon/>} onClick={() => addAnimal(playerIndex)} size='small' variant='outlined'>
         Add animal
       </Button>
@@ -265,40 +306,13 @@ const SeedEditor = ({seed, onChange, roomPlayerCount}) => {
 
   const renderHand = (player, playerIndex) => (
     <Box>
-      {player.hand.map((entry, handIndex) => (
-        <Grid container spacing={1} alignItems='center' key={`hand-${handIndex}`}>
-          <Grid item xs={4}>
-            <TextField
-              label='Count'
-              type='number'
-              fullWidth
-              value={entry.count}
-              onChange={(event) => updateHandCard(playerIndex, handIndex, {count: event.target.value})}
-              inputProps={{min: 1}}
-            />
-          </Grid>
-          <Grid item xs={7}>
-            <TextField
-              select
-              label='Card'
-              fullWidth
-              value={entry.card}
-              onChange={(event) => updateHandCard(playerIndex, handIndex, {card: event.target.value})}
-            >
-              {cardOptions.map((option) => (
-                <MenuItem key={option.value} value={option.value}>
-                  {option.label}
-                </MenuItem>
-              ))}
-            </TextField>
-          </Grid>
-          <Grid item xs={1}>
-            <IconButton onClick={() => removeHandCard(playerIndex, handIndex)} aria-label='Remove hand card'>
-              <DeleteIcon fontSize='small'/>
-            </IconButton>
-          </Grid>
-        </Grid>
-      ))}
+      {renderDeckList(
+        player.hand,
+        (handIndex, changes) => updateHandCard(playerIndex, handIndex, changes),
+        (handIndex) => removeHandCard(playerIndex, handIndex),
+        cardOptions,
+        `hand-${playerIndex}`
+      )}
       <Button startIcon={<AddIcon/>} onClick={() => addHandCard(playerIndex)} size='small' variant='outlined'>
         Add card to hand
       </Button>
@@ -308,7 +322,7 @@ const SeedEditor = ({seed, onChange, roomPlayerCount}) => {
   const renderPlayers = () => (
     <Box>
       {state.players.map((player, index) => (
-        <Paper key={`player-${index}`} style={{padding: 12, marginBottom: 12}} variant='outlined'>
+        <Paper key={`player-${index}`} className={classes.playerCard} variant='outlined'>
           <Grid container spacing={2}>
             <Grid item xs={12}>
               <Grid container alignItems='center' justifyContent='space-between'>
@@ -383,7 +397,7 @@ const SeedEditor = ({seed, onChange, roomPlayerCount}) => {
 
   return (
     <Box mt={2}>
-      <Paper style={{padding: 16}} variant='outlined'>
+      <Paper className={classes.editorPaper} variant='outlined'>
         <Typography variant='h6'>Game seed editor</Typography>
         <Typography variant='body2' color='textSecondary'>
           Configure decks, phase, food and player setups without editing YAML manually.
@@ -479,16 +493,16 @@ const SeedEditor = ({seed, onChange, roomPlayerCount}) => {
               Enable the Plantarium addon to include plant cards in the seed.
             </Typography>
           ) : null}
-          {renderDeckList(state.deckPlants, handleDeckPlantsChange, removeDeckPlantEntry, plantCardOptions)}
+          {renderDeckList(state.deckPlants, handleDeckPlantsChange, removeDeckPlantEntry, plantCardOptions, 'plant')}
         </Box>
         <Box mt={3}>
           <Typography variant='subtitle1'>Players</Typography>
           {renderPlayers()}
         </Box>
-        <Divider style={{margin: '16px 0'}}/>
+        <Divider className={classes.sectionDivider}/>
         <FormControlLabel
           control={<Switch checked={showRaw} onChange={() => setShowRaw(!showRaw)} color='primary'/>}
-          label={<Box display='flex' alignItems='center'><CodeIcon style={{marginRight: 4}}/>Show raw YAML</Box>}
+          label={(<Box className={classes.rawToggleLabel}><CodeIcon className={classes.rawToggleIcon}/>Show raw YAML</Box>)}
         />
         <Collapse in={showRaw}>
           <Box mt={2}>

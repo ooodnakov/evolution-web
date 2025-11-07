@@ -18,6 +18,24 @@ const cardTypeKeys = Object.keys(cardsData).filter((key) => key.startsWith('Card
 const plantTypeKeys = Object.keys(plantTypes);
 const traitTypeKeys = Object.keys(traitTypes).filter((key) => key.startsWith('Trait'));
 
+const parseTraitParts = (value) => {
+  if (!value) {
+    return {baseName: '', valueSuffix: '', linkSuffix: '', original: ''};
+  }
+  const trimmed = String(value).trim();
+  if (!trimmed) {
+    return {baseName: '', valueSuffix: '', linkSuffix: '', original: ''};
+  }
+  const [baseWithValue, ...linkParts] = trimmed.split('$');
+  const [baseName, ...valueParts] = baseWithValue.split('=');
+  return {
+    baseName,
+    valueSuffix: valueParts.length ? `=${valueParts.join('=')}` : '',
+    linkSuffix: linkParts.length ? `$${linkParts.join('$')}` : '',
+    original: trimmed,
+  };
+};
+
 const findMatchingKey = (keys, name) => {
   if (!name) return '';
   const trimmed = String(name).trim();
@@ -31,16 +49,17 @@ const findMatchingKey = (keys, name) => {
 const normalizeCardValue = (value) => findMatchingKey(cardTypeKeys, value);
 const normalizePlantValue = (value) => findMatchingKey(plantTypeKeys, value);
 const normalizeTraitValue = (value) => {
-  if (!value) return '';
-  const trimmed = String(value).trim();
-  if (!trimmed) return '';
-  const [baseWithValue, ...linkParts] = trimmed.split('$');
-  const [baseName, ...valueParts] = baseWithValue.split('=');
+  const {baseName, valueSuffix, linkSuffix, original} = parseTraitParts(value);
+  if (!baseName) return '';
   const traitKey = findMatchingKey(traitTypeKeys, baseName);
-  if (!traitKey) return trimmed;
-  const valueSuffix = valueParts.length ? `=${valueParts.join('=')}` : '';
-  const linkSuffix = linkParts.length ? `$${linkParts.join('$')}` : '';
+  if (!traitKey) return original;
   return `${traitKey}${valueSuffix}${linkSuffix}`;
+};
+
+export const getTraitBaseKey = (value) => {
+  const {baseName} = parseTraitParts(value);
+  if (!baseName) return '';
+  return findMatchingKey(traitTypeKeys, baseName) || baseName;
 };
 
 const toCardEntries = (deckString, normalizer = normalizeCardValue) => {
@@ -51,7 +70,6 @@ const toCardEntries = (deckString, normalizer = normalizeCardValue) => {
     .filter(Boolean)
     .map((entry) => {
       const parts = entry.split(/\s+/);
-      if (parts.length === 0) return {count: 1, card: ''};
       const first = parts[0];
       if (/^\d+$/.test(first)) {
         return {
