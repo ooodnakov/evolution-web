@@ -1,26 +1,17 @@
 import React, {Component} from 'react';
 import {connect} from 'react-redux';
-import {Map, List, fromJS} from 'immutable';
 
 import {roomSetSeedRequest, roomStartVotingRequest} from '../../../shared/actions/actions';
-import Input from "@material-ui/core/Input";
 import Button from "@material-ui/core/Button";
 
-const defaultGameSeed = `deck: 12 carnivorous, 6 sharp
-phase: feeding
-food: 2
-players:
-  - hand: 1 sharp, 1 camo
-    continent: carn sharp, carn camo
-  - hand: 1 sharp, 1 camo
-    continent: carn sharp, carn camo
-`;
+import SeedEditor from './SeedEditor/SeedEditor.jsx';
+import {defaultSeedString} from './SeedEditor/seedUtils';
 
 export class RoomSection extends Component {
   constructor(props) {
     super(props);
     this.state = {
-      gameSeed: window.localStorage.getItem('gameSeed') || defaultGameSeed
+      gameSeed: window.localStorage.getItem('gameSeed') || defaultSeedString
     }
   }
 
@@ -38,11 +29,11 @@ export class RoomSection extends Component {
           Start Game
         </Button>
         : null}
-      <Input
-        multiline={true}
-        fullWidth={true}
-        value={this.state.gameSeed}
-        onChange={(e) => this.setGameSeed(e.target.value)}/>
+      <SeedEditor
+        seed={this.state.gameSeed}
+        onChange={(value) => this.setGameSeed(value)}
+        roomPlayerCount={this.props.roomPlayersCount}
+      />
     </div>
   }
 }
@@ -53,10 +44,12 @@ export default connect(
     const roomId = state.get('room');
     const room = state.getIn(['rooms', roomId]);
     const gameCanStart = room ? room.checkCanStart(userId) : false;
+    const roomPlayersCount = room ? room.users.size : 0;
     return {
       roomId
       , userId
       , gameCanStart
+      , roomPlayersCount
     }
   }
   , (dispatch) => ({
