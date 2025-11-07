@@ -60,22 +60,8 @@ const normalizeUser = (userRecord) => {
   };
 };
 
-const ensurePool = () => {
-  if (!ANALYTICS_ENABLED) return null;
-  if (pool) return pool;
-  pool = new Pool({
-    host: process.env.ANALYTICS_PG_HOST,
-    port: Number(process.env.ANALYTICS_PG_PORT || 5432),
-    database: process.env.ANALYTICS_PG_DATABASE,
-    user: process.env.ANALYTICS_PG_USER,
-    password: process.env.ANALYTICS_PG_PASSWORD,
-    max: Number(process.env.ANALYTICS_PG_POOL_SIZE || 10),
-    ssl: process.env.ANALYTICS_PG_SSL === 'true'
-  });
-  pool.on('error', (error) => {
-    logger.error('Analytics pool error', error);
-  });
-  ready = pool.query(`
+const initializeSchema = async (currentPool) => {
+  await currentPool.query(`
     CREATE TABLE IF NOT EXISTS analytics_users (
       id SERIAL PRIMARY KEY,
       external_id TEXT UNIQUE NOT NULL,
@@ -86,27 +72,55 @@ const ensurePool = () => {
       created_at TIMESTAMPTZ DEFAULT now(),
       updated_at TIMESTAMPTZ DEFAULT now()
     );
-  `)
-    .then(() => pool.query(`
-      CREATE TABLE IF NOT EXISTS analytics_events (
-        id BIGSERIAL PRIMARY KEY,
-        external_user_id TEXT,
-        user_id INTEGER REFERENCES analytics_users(id) ON DELETE SET NULL,
-        event_type TEXT NOT NULL,
-        event_context JSONB DEFAULT '{}'::jsonb,
-        room_id TEXT,
-        game_id TEXT,
-        created_at TIMESTAMPTZ DEFAULT now()
-      );
-    `))
-    .then(() => pool.query('CREATE INDEX IF NOT EXISTS analytics_events_event_type_idx ON analytics_events(event_type);'))
-    .then(() => pool.query('CREATE INDEX IF NOT EXISTS analytics_events_created_at_idx ON analytics_events(created_at);'))
-    .then(() => pool.query('CREATE INDEX IF NOT EXISTS analytics_events_game_id_idx ON analytics_events(game_id);'))
-    .then(() => pool.query('CREATE INDEX IF NOT EXISTS analytics_events_room_id_idx ON analytics_events(room_id);'))
-    .catch((error) => {
+  `);
+
+  await currentPool.query(`
+    CREATE TABLE IF NOT EXISTS analytics_events (
+      id BIGSERIAL PRIMARY KEY,
+      external_user_id TEXT,
+      user_id INTEGER REFERENCES analytics_users(id) ON DELETE SET NULL,
+      event_type TEXT NOT NULL,
+      event_context JSONB DEFAULT '{}'::jsonb,
+      room_id TEXT,
+      game_id TEXT,
+      created_at TIMESTAMPTZ DEFAULT now()
+    );
+  `);
+
+  await currentPool.query('CREATE INDEX IF NOT EXISTS analytics_events_event_type_idx ON analytics_events(event_type);');
+  await currentPool.query('CREATE INDEX IF NOT EXISTS analytics_events_created_at_idx ON analytics_events(created_at);');
+  await currentPool.query('CREATE INDEX IF NOT EXISTS analytics_events_game_id_idx ON analytics_events(game_id);');
+  await currentPool.query('CREATE INDEX IF NOT EXISTS analytics_events_room_id_idx ON analytics_events(room_id);');
+  await currentPool.query('CREATE INDEX IF NOT EXISTS analytics_events_game_event_idx ON analytics_events(game_id, event_type);');
+};
+
+const ensurePool = () => {
+  if (!ANALYTICS_ENABLED) return null;
+  if (pool) return pool;
+
+  pool = new Pool({
+    host: process.env.ANALYTICS_PG_HOST,
+    port: Number(process.env.ANALYTICS_PG_PORT || 5432),
+    database: process.env.ANALYTICS_PG_DATABASE,
+    user: process.env.ANALYTICS_PG_USER,
+    password: process.env.ANALYTICS_PG_PASSWORD,
+    max: Number(process.env.ANALYTICS_PG_POOL_SIZE || 10),
+    ssl: process.env.ANALYTICS_PG_SSL === 'true'
+  });
+
+  pool.on('error', (error) => {
+    logger.error('Analytics pool error', error);
+  });
+
+  ready = (async () => {
+    try {
+      await initializeSchema(pool);
+    } catch (error) {
       logger.error('Failed to initialize analytics storage', error);
       throw error;
-    });
+    }
+  })();
+
   return pool;
 };
 
@@ -120,6 +134,8 @@ const ensureUserRecord = async (userData) => {
     userData.vkLogin || null,
     userData.vkId || null
   ];
+  await ready;
+
   const {rows} = await currentPool.query(`
     INSERT INTO analytics_users (external_id, login, auth_type, vk_login, vk_id)
     VALUES ($1, $2, $3, $4, $5)
@@ -138,6 +154,7 @@ const ensureUserRecord = async (userData) => {
 const logEvent = async ({eventType, user, metadata = {}, roomId = null, gameId = null}) => {
   if (!ANALYTICS_ENABLED) return;
   const currentPool = ensurePool();
+  await ready;
   const normalizedContext = sanitizeContext(metadata) || {};
   let userRecord = user || null;
   if (userRecord && !userRecord.id) {
@@ -383,17 +400,33 @@ const handleAuthenticationEvent = async (action, prevState) => {
   }
 };
 
+const AUTH_ACTIONS = new Set(['loginUser', 'logoutUser']);
+const CHAT_ACTIONS = new Set(['chatMessageGlobal', 'chatMessageRoom', 'chatMessageUser']);
+const ROOM_ACTION_PATTERN = /^room(?:$|[A-Z:_])/;
+const GAME_ACTION_PATTERN = /^(?:game|trait)(?:$|[A-Z:_])/;
+
 const handleAction = async (action, prevState, nextState) => {
   if (!ANALYTICS_ENABLED) return;
   if (!action || (action.meta && action.meta.clientOnly)) return;
+  const {type} = action;
+  if (!type) return;
   try {
-    if (action.type === 'loginUser' || action.type === 'logoutUser') {
+    if (AUTH_ACTIONS.has(type)) {
       await handleAuthenticationEvent(action, prevState, nextState);
-    } else if (action.type === 'chatMessageGlobal' || action.type === 'chatMessageRoom' || action.type === 'chatMessageUser') {
+      return;
+    }
+
+    if (CHAT_ACTIONS.has(type)) {
       await handleChatMessage(action, prevState, nextState);
-    } else if (action.type.startsWith('room')) {
+      return;
+    }
+
+    if (ROOM_ACTION_PATTERN.test(type)) {
       await handleRoomEvent(action, prevState, nextState);
-    } else if (action.type.startsWith('game') || action.type.startsWith('trait')) {
+      return;
+    }
+
+    if (GAME_ACTION_PATTERN.test(type)) {
       await handleGameEvent(action, prevState, nextState);
     }
   } catch (error) {
@@ -406,6 +439,7 @@ const fetchSummary = async () => {
     return {enabled: false};
   }
   const currentPool = ensurePool();
+  await ready;
   const windowClause = SUMMARY_WINDOW_DAYS > 0 ? `WHERE created_at >= now() - interval '${SUMMARY_WINDOW_DAYS} days'` : '';
   const [totals, usersOverTime, gamesOverTime, actionsByType, recentEvents, openGames] = await Promise.all([
     currentPool.query('SELECT COUNT(*)::int AS total_events FROM analytics_events;'),

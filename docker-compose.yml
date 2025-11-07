@@ -17,7 +17,7 @@ services:
       - ANALYTICS_PG_PORT=${ANALYTICS_PG_PORT:-5432}
       - ANALYTICS_PG_DATABASE=${ANALYTICS_PG_DATABASE:-evolution_analytics}
       - ANALYTICS_PG_USER=${ANALYTICS_PG_USER:-evolution}
-      - ANALYTICS_PG_PASSWORD=${ANALYTICS_PG_PASSWORD:-evolution_secret}
+      - ANALYTICS_PG_PASSWORD=${ANALYTICS_PG_PASSWORD}
 
   analytics-db:
     image: postgres:14
@@ -26,7 +26,7 @@ services:
     environment:
       - POSTGRES_DB=${ANALYTICS_PG_DATABASE:-evolution_analytics}
       - POSTGRES_USER=${ANALYTICS_PG_USER:-evolution}
-      - POSTGRES_PASSWORD=${ANALYTICS_PG_PASSWORD:-evolution_secret}
+      - POSTGRES_PASSWORD=${ANALYTICS_PG_PASSWORD}
     volumes:
       - db-data:/var/lib/postgresql/data
     networks:
