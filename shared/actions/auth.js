@@ -115,9 +115,10 @@ export const server$logoutUser = (userId) => (dispatch, getState) => {
  * Register
  */
 
-export const server$injectUser = (id, login, authType, awards) => (dispatch) => {
-  // console.log('dbUser', id, login)
-  const user = new UserModel({id, login, authType, awards}).sign();
+export const server$injectUser = (id, login, authType, awards, profile) => (dispatch) => {
+  const normalizedAwards = Map.isMap(awards) ? awards : Map(awards);
+  const normalizedProfile = Map.isMap(profile) ? profile : Map(profile);
+  const user = new UserModel({id, login, authType, awards: normalizedAwards, profile: normalizedProfile}).sign();
   dispatch(loginUser({user}));
   dispatch(addTimeout(
     USER_LOGOUT_TIMEOUT

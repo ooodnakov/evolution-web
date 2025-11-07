@@ -43,7 +43,17 @@ export const server$oauthVKRegister = (protocol = 'http', host, code) => (dispat
               ? db$registerUser(updateObject)
               : db$updateUserByAuth(AUTH_TYPE.VK, user_id, updateObject))
               .then(() => db$findUser(AUTH_TYPE.VK, user_id))
-              .then((result) => dispatch(server$injectUser(result._id.toString(), result.name, AUTH_TYPE.VK, result.awards)))
+              .then((result) => dispatch(server$injectUser(
+                result._id.toString(),
+                result.name,
+                AUTH_TYPE.VK,
+                result.awards,
+                {
+                  vkId: result.auth && result.auth.id,
+                  vkLogin: result.auth && (result.auth.screen_name || result.auth.name),
+                  authName: result.auth && result.auth.name
+                }
+              )))
           })
         )
     )

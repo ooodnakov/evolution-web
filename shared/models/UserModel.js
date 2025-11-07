@@ -24,13 +24,15 @@ export class UserModel extends Record({
   , authType: null
   , chat: ChatModel.new()
   , awards: Map()
+  , profile: Map()
 }) {
   static fromJS(js) {
     return js == null
       ? null
       : new UserModel(js)
         .set('chat', ChatModel.fromJS(js.chat))
-        .set('awards', Map(js.awards));
+        .set('awards', Map(js.awards))
+        .set('profile', Map(js.profile));
   }
 
   static new(login, connectionId) {

@@ -4,6 +4,7 @@ import {selectUser} from "../../shared/selectors";
 var router = require('express').Router();
 var path = require('path');
 import oauth from './oauth';
+import analyticsRouter from './analytics';
 import glob from 'glob';
 import fs from 'fs';
 import moment from 'moment';
@@ -38,6 +39,7 @@ module.exports = (app, passport) => {
   });
 
   router.use('/oauth', oauth);
+  router.use('/analytics', analyticsRouter);
   // set authentication routes
   //require('./authentication.js')(app, passport);
 
