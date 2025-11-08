@@ -29,7 +29,8 @@
     "test:server:once": "npx gulp test:server:once",
     "test:server": "npx gulp test:server",
     "test:all:once": "npx gulp test:all:once",
-    "test:all": "npx gulp test:all"
+    "test:all": "npx gulp test:all",
+    "admin-editor": "node tools/admin-seed-editor/server.js"
   },
   "repository": {
     "type": "git",
