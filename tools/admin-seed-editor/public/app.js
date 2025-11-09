@@ -30,8 +30,8 @@ const createPlayer = (index = 0) => ({
 
 const createCardToken = (meta) => ({
   uid: createId(),
-  seedName: meta && meta.seedName ? meta.seedName : (meta || 'card'),
-  name: meta && meta.name ? meta.name : (meta && meta.seedName ? meta.seedName : 'Card')
+  seedName: (meta && meta.seedName) || (typeof meta === 'string' ? meta : 'card'),
+  name: (meta && meta.name) || (meta && meta.seedName) || (typeof meta === 'string' ? meta : 'Card')
 });
 
 const useSortable = (ref, options) => {
@@ -133,7 +133,7 @@ const parseSeedString = (seedString, library) => {
     }
   });
 
-  const players = Array.isArray(parsed.players)
+  const players = (Array.isArray(parsed.players) && parsed.players.length > 0)
     ? parsed.players.map((player, index) => ({
         id: createId(),
         name: `Player ${index + 1}`,
@@ -147,7 +147,7 @@ const parseSeedString = (seedString, library) => {
     food: typeof parsed.food === 'number' ? parsed.food : '',
     deck: expandCardList(parsed.deck, library.cards),
     deckPlants: expandCardList(parsed.deckPlants, library.plants),
-    players: players.length ? players : [createPlayer(0)],
+    players,
     settings: baseSettings,
     customSettings
   };
@@ -496,10 +496,7 @@ function App() {
       if (parsed) {
         setConfig((current) => ({
           ...current,
-          ...parsed,
-          players: parsed.players,
-          settings: {...defaultSettings(), ...parsed.settings},
-          customSettings: parsed.customSettings || []
+          ...parsed
         }));
         setExportedSeed(defaultSeedTemplate.trim());
         setImportText(defaultSeedTemplate.trim());
@@ -655,10 +652,7 @@ function App() {
     if (parsed) {
       setConfig((current) => ({
         ...current,
-        ...parsed,
-        players: parsed.players,
-        settings: {...defaultSettings(), ...parsed.settings},
-        customSettings: parsed.customSettings || []
+        ...parsed
       }));
       setStatusMessage('Seed imported successfully.');
     } else {

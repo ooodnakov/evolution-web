@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const express = require('express');
-const bodyParser = require('body-parser');
+const parser = require('@babel/parser');
 
 const ROOT = path.resolve(__dirname, '..', '..');
 const PUBLIC_DIR = path.join(__dirname, 'public');
@@ -17,16 +17,45 @@ const toDisplayName = (value = '') => value
 
 const readFile = (relativePath) => fs.readFileSync(path.join(ROOT, relativePath), 'utf8');
 
+const parserOptions = {
+  sourceType: 'module',
+  plugins: [
+    'flow',
+    'jsx',
+    'classProperties',
+    'objectRestSpread',
+    'optionalChaining',
+    'nullishCoalescingOperator',
+    'dynamicImport'
+  ]
+};
+
+const parseModule = (content) => {
+  try {
+    return parser.parse(content, parserOptions);
+  } catch (error) {
+    // eslint-disable-next-line no-console
+    console.warn('Failed to parse source file for admin seed editor library generation:', error.message);
+    return null;
+  }
+};
+
 const collectCardNames = () => {
   const files = fs.readdirSync(CARDS_DIR).filter((file) => file.endsWith('.js'));
   const names = new Set();
   files.forEach((file) => {
     const content = fs.readFileSync(path.join(CARDS_DIR, file), 'utf8');
-    const regex = /export const (Card[\w]+)/g;
-    let match;
-    while ((match = regex.exec(content)) !== null) {
-      names.add(match[1]);
-    }
+    const ast = parseModule(content);
+    if (!ast) return;
+    ast.program.body.forEach((node) => {
+      if (node.type !== 'ExportNamedDeclaration' || !node.declaration) return;
+      if (node.declaration.type !== 'VariableDeclaration') return;
+      node.declaration.declarations.forEach((declaration) => {
+        if (declaration.id && declaration.id.type === 'Identifier' && declaration.id.name.startsWith('Card')) {
+          names.add(declaration.id.name);
+        }
+      });
+    });
   });
   names.delete('CardUnknown');
   return Array.from(names);
@@ -34,38 +63,73 @@ const collectCardNames = () => {
 
 const collectTraitNames = () => {
   const content = readFile('shared/models/game/evolution/traitTypes/index.js');
-  const regex = /export const (Trait[\w]+)\s*=\s*'([^']+)'/g;
-  const result = [];
-  let match;
-  while ((match = regex.exec(content)) !== null) {
-    result.push(match[2]);
-  }
-  return Array.from(new Set(result));
+  const ast = parseModule(content);
+  if (!ast) return [];
+  const result = new Set();
+  ast.program.body.forEach((node) => {
+    if (node.type !== 'ExportNamedDeclaration' || !node.declaration) return;
+    if (node.declaration.type !== 'VariableDeclaration') return;
+    node.declaration.declarations.forEach((declaration) => {
+      if (!declaration.id || declaration.id.type !== 'Identifier') return;
+      if (!declaration.id.name.startsWith('Trait')) return;
+      if (declaration.init && declaration.init.type === 'StringLiteral') {
+        result.add(declaration.init.value);
+      } else {
+        result.add(declaration.id.name);
+      }
+    });
+  });
+  return Array.from(result);
 };
 
 const collectPlantNames = () => {
   const content = readFile('shared/models/game/evolution/plantarium/plantTypes.js');
-  const regex = /export const (Plant[\w]+)\s*=\s*'([^']+)'/g;
-  const result = [];
-  let match;
-  while ((match = regex.exec(content)) !== null) {
-    result.push(match[2]);
-  }
-  return Array.from(new Set(result));
+  const ast = parseModule(content);
+  if (!ast) return [];
+  const result = new Set();
+  ast.program.body.forEach((node) => {
+    if (node.type !== 'ExportNamedDeclaration' || !node.declaration) return;
+    if (node.declaration.type !== 'VariableDeclaration') return;
+    node.declaration.declarations.forEach((declaration) => {
+      if (!declaration.id || declaration.id.type !== 'Identifier') return;
+      if (!declaration.id.name.startsWith('Plant')) return;
+      if (declaration.init && declaration.init.type === 'StringLiteral') {
+        result.add(declaration.init.value);
+      } else {
+        result.add(declaration.id.name);
+      }
+    });
+  });
+  return Array.from(result);
 };
 
 const collectPhases = () => {
   const content = readFile('shared/models/game/GameModel.js');
-  const blockMatch = content.match(/export const PHASE = \{([\s\S]*?)\};/);
-  if (!blockMatch) return [];
-  const block = blockMatch[1];
-  const regex = /([A-Z_]+)\s*:/g;
-  const phases = [];
-  let match;
-  while ((match = regex.exec(block)) !== null) {
-    phases.push(match[1].toLowerCase());
-  }
-  return Array.from(new Set(phases));
+  const ast = parseModule(content);
+  if (!ast) return [];
+  const result = new Set();
+  ast.program.body.forEach((node) => {
+    if (node.type !== 'ExportNamedDeclaration' || !node.declaration) return;
+    if (node.declaration.type !== 'VariableDeclaration') return;
+    node.declaration.declarations.forEach((declaration) => {
+      if (!declaration.id || declaration.id.type !== 'Identifier' || declaration.id.name !== 'PHASE') return;
+      if (!declaration.init || declaration.init.type !== 'ObjectExpression') return;
+      declaration.init.properties.forEach((property) => {
+        if (property.type !== 'ObjectProperty') return;
+        if (property.value && property.value.type === 'StringLiteral') {
+          result.add(property.value.value.toLowerCase());
+        } else if (property.key) {
+          if (property.key.type === 'Identifier') {
+            result.add(property.key.name.toLowerCase());
+          }
+          if (property.key.type === 'StringLiteral') {
+            result.add(property.key.value.toLowerCase());
+          }
+        }
+      });
+    });
+  });
+  return Array.from(result);
 };
 
 const makeCardLibrary = () => collectCardNames()
@@ -107,7 +171,6 @@ const phases = collectPhases();
 const app = express();
 const PORT = process.env.PORT || 4000;
 
-app.use(bodyParser.json({limit: '1mb'}));
 app.use(express.static(PUBLIC_DIR));
 
 app.get('/api/library', (req, res) => {
@@ -117,18 +180,6 @@ app.get('/api/library', (req, res) => {
     plants: plantLibrary,
     phases
   });
-});
-
-app.post('/api/library/cards/resolve', (req, res) => {
-  const {tokens = []} = req.body || {};
-  const resolved = tokens.map((token) => {
-    if (typeof token !== 'string') return null;
-    const normalized = token.trim().toLowerCase();
-    const match = cardLibrary.find((card) => card.seedName === normalized
-      || card.search.includes(normalized));
-    return match ? match.seedName : normalized;
-  }).filter(Boolean);
-  res.json({tokens: resolved});
 });
 
 app.get('*', (req, res) => {
