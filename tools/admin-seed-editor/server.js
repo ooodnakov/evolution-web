@@ -61,13 +61,33 @@ const extractTraitName = (expression) => {
   return null;
 };
 
+const CARD_PACK_SEQUENCE = ['base', 'bonus', 'cons', 'customff', 'lifecycle', 'plantarium', 'ttf'];
+const CARD_PACK_LABELS = new Map([
+  ['base', 'Base Game'],
+  ['bonus', 'Bonus'],
+  ['cons', 'Continents'],
+  ['customff', 'Custom FF'],
+  ['lifecycle', 'Lifecycle'],
+  ['plantarium', 'Plantarium'],
+  ['ttf', 'Time to Fly']
+]);
+
+const getPackLabel = (packKey = '') => CARD_PACK_LABELS.get(packKey)
+  || packKey
+    .replace(/[_-]+/g, ' ')
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+
 const collectCardNames = () => {
-  const files = fs.readdirSync(CARDS_DIR).filter((file) => file.endsWith('.js'));
+  const files = fs.readdirSync(CARDS_DIR)
+    .filter((file) => file.endsWith('.js'));
   const names = new Map();
   files.forEach((file) => {
     const content = fs.readFileSync(path.join(CARDS_DIR, file), 'utf8');
     const ast = parseModule(content);
     if (!ast) return;
+    const fileKey = path.basename(file, '.js');
+    const packKey = fileKey === 'index' ? 'base' : fileKey;
+    if (!CARD_PACK_SEQUENCE.includes(packKey)) return;
     ast.program.body.forEach((node) => {
       if (node.type !== 'ExportNamedDeclaration' || !node.declaration) return;
       if (node.declaration.type !== 'VariableDeclaration') return;
@@ -80,7 +100,13 @@ const collectCardNames = () => {
               if (traitName) traits.push(traitName);
             });
           }
-          names.set(declaration.id.name, {id: declaration.id.name, traits});
+          if (names.has(declaration.id.name)) return;
+          names.set(declaration.id.name, {
+            id: declaration.id.name,
+            traits,
+            pack: packKey,
+            packOrder: CARD_PACK_SEQUENCE.indexOf(packKey)
+          });
         }
       });
     });
@@ -161,17 +187,25 @@ const collectPhases = () => {
 };
 
 const makeCardLibrary = () => collectCardNames()
-  .map(({id, traits}) => {
+  .map(({id, traits, pack, packOrder}) => {
     const base = id.replace(/^Card/, '');
     const seedName = base.toLowerCase();
     const searchTokens = [id.toLowerCase(), seedName];
     traits.forEach((trait) => searchTokens.push(trait.toLowerCase()));
+    if (pack) {
+      const label = getPackLabel(pack);
+      searchTokens.push(pack.toLowerCase());
+      searchTokens.push(label.toLowerCase());
+    }
     return {
       id,
       name: toDisplayName(id),
       seedName,
       category: 'card',
       traits,
+      pack,
+      packLabel: getPackLabel(pack),
+      packOrder: typeof packOrder === 'number' ? packOrder : Number.MAX_SAFE_INTEGER,
       search: searchTokens.join(' ')
     };
   })

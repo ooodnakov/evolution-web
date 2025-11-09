@@ -5,6 +5,10 @@ const DEFAULT_LANGUAGE_OPTIONS = [
   {code: 'en', label: 'English'},
   {code: 'ru', label: 'Русский'}
 ];
+const CARD_PACK_SEQUENCE = ['base', 'bonus', 'cons', 'customff', 'lifecycle', 'plantarium', 'ttf'];
+const formatPackLabel = (value = '') => value
+  .replace(/[_-]+/g, ' ')
+  .replace(/\b\w/g, (char) => char.toUpperCase());
 
 const UI_TRANSLATIONS = {
   en: {
@@ -474,15 +478,39 @@ const CardDropZone = ({title, description, listId, items, onDrop, onRemoveCard, 
   );
 };
 
-const CardLibrary = ({title, description, cards, groupName = 'cards', formatToken, searchPlaceholder, formatCountLabel}) => {
-  const [query, setQuery] = useState('');
-  const containerRef = useRef(null);
-  useSortable(containerRef, useMemo(() => ({
+const LibraryGroup = ({title, cards, groupName, dataListId, formatToken}) => {
+  const listRef = useRef(null);
+  useSortable(listRef, useMemo(() => ({
     group: {name: groupName, pull: 'clone', put: false},
     animation: 150,
     sort: false,
     draggable: '.card-token'
   }), [groupName]));
+
+  return (
+    <div className="library-group">
+      {title ? <h3 className="library-group__title">{title}</h3> : null}
+      <div className="card-list card-list--library" ref={listRef} data-list-id={dataListId}>
+        {cards.map((card) => {
+          const visual = formatToken(card);
+          return (
+            <CardToken
+              key={card.id}
+              variant={visual.variant}
+              lines={visual.lines}
+              badge={visual.badge}
+              dataAttributes={{'data-slug': card.seedName}}
+            />
+          );
+        })}
+      </div>
+    </div>
+  );
+};
+
+const CardLibrary = ({title, description, cards = [], groupName = 'cards', formatToken, searchPlaceholder, formatCountLabel}) => {
+  const [query, setQuery] = useState('');
+  const dataListId = groupName === 'cards' ? 'library' : 'plant-library';
 
   const filteredCards = useMemo(() => {
     const normalized = query.trim().toLowerCase();
@@ -495,9 +523,38 @@ const CardLibrary = ({title, description, cards, groupName = 'cards', formatToke
   }, [query, cards, formatToken]);
 
   const countLabel = formatCountLabel(filteredCards.length);
+  const hasPackGrouping = useMemo(() => filteredCards.some((card) => card.pack), [filteredCards]);
+  const groups = useMemo(() => {
+    if (!filteredCards.length) {
+      return [{id: 'empty', title: null, cards: []}];
+    }
+    if (!hasPackGrouping) {
+      return [{id: 'all', title: null, cards: filteredCards}];
+    }
+    const mapped = new Map();
+    filteredCards.forEach((card) => {
+      const packKey = card.pack || 'other';
+      if (!mapped.has(packKey)) {
+        const order = typeof card.packOrder === 'number' ? card.packOrder : CARD_PACK_SEQUENCE.indexOf(packKey);
+        mapped.set(packKey, {
+          id: packKey,
+          title: card.packLabel || formatPackLabel(packKey),
+          order: order === -1 ? Number.MAX_SAFE_INTEGER : order,
+          cards: []
+        });
+      }
+      mapped.get(packKey).cards.push(card);
+    });
+    return Array.from(mapped.values())
+      .map((group) => ({
+        ...group,
+        cards: group.cards.slice().sort((a, b) => a.name.localeCompare(b.name))
+      }))
+      .sort((a, b) => (a.order - b.order) || a.title.localeCompare(b.title));
+  }, [filteredCards, hasPackGrouping]);
 
   return (
-    <section>
+    <section className="card-library">
       <div className="section-header">
         <div>
           <h2>{title}</h2>
@@ -513,19 +570,17 @@ const CardLibrary = ({title, description, cards, groupName = 'cards', formatToke
           onChange={(event) => setQuery(event.target.value)}
         />
       </div>
-      <div className="card-list" ref={containerRef} data-list-id={groupName === 'cards' ? 'library' : 'plant-library'}>
-        {filteredCards.map((card) => {
-          const visual = formatToken(card);
-          return (
-            <CardToken
-              key={card.id}
-              variant={visual.variant}
-              lines={visual.lines}
-              badge={visual.badge}
-              dataAttributes={{'data-slug': card.seedName}}
-            />
-          );
-        })}
+      <div className="library-groups">
+        {groups.map((group) => (
+          <LibraryGroup
+            key={group.id}
+            title={group.title}
+            cards={group.cards}
+            groupName={groupName}
+            dataListId={dataListId}
+            formatToken={formatToken}
+          />
+        ))}
       </div>
     </section>
   );
@@ -1007,7 +1062,7 @@ function App() {
       const player = draft.players.find((p) => p.id === playerId);
       if (player) {
         player.name = value;
-        if (value && value.trim().length) {
+        if (value) {
           player.generatedNameIndex = null;
         }
       }
@@ -1084,9 +1139,9 @@ function App() {
   const formatLibraryCount = useCallback((count) => t('library.count', {count}), [t]);
 
   const languageOptions = availableLanguageOptions;
-const selectedLanguage = languageOptions.some((option) => option.code === language)
-  ? language
-  : languageOptions[0].code;
+  const selectedLanguage = languageOptions.some((option) => option.code === language)
+    ? language
+    : languageOptions[0].code;
 
   const statusMessage = statusKey ? t(statusKey) : '';
 
@@ -1105,109 +1160,115 @@ const selectedLanguage = languageOptions.some((option) => option.code === langua
         </select>
       </div>
 
-      <section>
-        <div className="section-header">
-          <div>
-            <h1>{t('app.title')}</h1>
-            <p className="section-description">{t('app.description')}</p>
-          </div>
-        </div>
-        <div className="grid-two-columns">
-          <div>
-            <label>{t('import.title')}</label>
-            <textarea
-              value={importText}
-              onChange={(event) => setImportText(event.target.value)}
-              placeholder={t('import.placeholder')}
-              style={{minHeight: '160px'}}
-            />
-            <div style={{marginTop: '8px', display: 'flex', gap: '12px'}}>
-              <button className="secondary" onClick={() => setImportText(defaultSeedTemplate.trim())}>{t('import.loadDefault')}</button>
-              <button className="primary" onClick={handleImport}>{t('import.button')}</button>
+      <div className="app-layout">
+        <div className="app-main">
+          <section>
+            <div className="section-header">
+              <div>
+                <h1>{t('app.title')}</h1>
+                <p className="section-description">{t('app.description')}</p>
+              </div>
             </div>
-          </div>
-          <div className="export-area">
-            <label>{t('export.title')}</label>
-            <textarea value={exportedSeed} readOnly placeholder={t('export.placeholder')} />
-            <div style={{marginTop: '8px'}}>
-              <button className="primary" onClick={handleExport}>{t('export.button')}</button>
+            <div className="grid-two-columns">
+              <div>
+                <label>{t('import.title')}</label>
+                <textarea
+                  value={importText}
+                  onChange={(event) => setImportText(event.target.value)}
+                  placeholder={t('import.placeholder')}
+                  style={{minHeight: '160px'}}
+                />
+                <div style={{marginTop: '8px', display: 'flex', gap: '12px'}}>
+                  <button className="secondary" onClick={() => setImportText(defaultSeedTemplate.trim())}>{t('import.loadDefault')}</button>
+                  <button className="primary" onClick={handleImport}>{t('import.button')}</button>
+                </div>
+              </div>
+              <div className="export-area">
+                <label>{t('export.title')}</label>
+                <textarea value={exportedSeed} readOnly placeholder={t('export.placeholder')} />
+                <div style={{marginTop: '8px'}}>
+                  <button className="primary" onClick={handleExport}>{t('export.button')}</button>
+                </div>
+                {statusMessage ? <p className="status-message">{statusMessage}</p> : null}
+              </div>
             </div>
-            {statusMessage ? <p className="status-message">{statusMessage}</p> : null}
-          </div>
-        </div>
-      </section>
+          </section>
 
-      <RoomSettings config={config} onUpdate={handleRoomUpdate} phases={library.phases || []} t={t} getPhaseLabel={getPhaseLabel} />
+          <RoomSettings config={config} onUpdate={handleRoomUpdate} phases={library.phases || []} t={t} getPhaseLabel={getPhaseLabel} />
 
-      <section>
-        <div className="section-header">
-          <div>
-            <h2>{t('deck.title')}</h2>
-            <p className="section-description">{t('deck.description')}</p>
-          </div>
-        </div>
-        <CardDropZone
-          title={t('deck.mainTitle')}
-          description={t('deck.mainDescription')}
-          listId="deck"
-          items={config.deck}
-          onDrop={handleDrop}
-          onRemoveCard={handleRemoveCard}
-          placeholder={t('deck.mainPlaceholder')}
-          formatToken={formatCardVisual}
-          groupName="cards"
-        />
-        {config.settings.addon_plantarium ? (
-          <div style={{marginTop: '16px'}}>
+          <section>
+            <div className="section-header">
+              <div>
+                <h2>{t('deck.title')}</h2>
+                <p className="section-description">{t('deck.description')}</p>
+              </div>
+            </div>
             <CardDropZone
-              title={t('deck.plantTitle')}
-              description={t('deck.plantDescription')}
-              listId="deckPlants"
-              items={config.deckPlants}
+              title={t('deck.mainTitle')}
+              description={t('deck.mainDescription')}
+              listId="deck"
+              items={config.deck}
               onDrop={handleDrop}
               onRemoveCard={handleRemoveCard}
-              placeholder={t('deck.plantPlaceholder')}
+              placeholder={t('deck.mainPlaceholder')}
               formatToken={formatCardVisual}
-              groupName="plants"
+              groupName="cards"
             />
-          </div>
-        ) : null}
-      </section>
+            {config.settings.addon_plantarium ? (
+              <div style={{marginTop: '16px'}}>
+                <CardDropZone
+                  title={t('deck.plantTitle')}
+                  description={t('deck.plantDescription')}
+                  listId="deckPlants"
+                  items={config.deckPlants}
+                  onDrop={handleDrop}
+                  onRemoveCard={handleRemoveCard}
+                  placeholder={t('deck.plantPlaceholder')}
+                  formatToken={formatCardVisual}
+                  groupName="plants"
+                />
+              </div>
+            ) : null}
+          </section>
 
-      <PlayersEditor
-        players={config.players}
-        onAdd={handleAddPlayer}
-        onRemove={handleRemovePlayer}
-        onUpdateName={handleUpdatePlayerName}
-        onUpdateContinent={handleUpdatePlayerContinent}
-        onRemoveCard={handleRemoveCard}
-        onDrop={handleDrop}
-        formatToken={formatCardVisual}
-        t={t}
-      />
+          <PlayersEditor
+            players={config.players}
+            onAdd={handleAddPlayer}
+            onRemove={handleRemovePlayer}
+            onUpdateName={handleUpdatePlayerName}
+            onUpdateContinent={handleUpdatePlayerContinent}
+            onRemoveCard={handleRemoveCard}
+            onDrop={handleDrop}
+            formatToken={formatCardVisual}
+            t={t}
+          />
 
-      <CustomSettingsEditor settings={config.customSettings} onChange={handleCustomSettingsChange} t={t} />
+          <CustomSettingsEditor settings={config.customSettings} onChange={handleCustomSettingsChange} t={t} />
+        </div>
 
-      <CardLibrary
-        title={t('library.cardTitle')}
-        description={t('library.cardDescription')}
-        cards={library.cards}
-        groupName="cards"
-        formatToken={formatCardVisual}
-        searchPlaceholder={t('library.searchPlaceholder')}
-        formatCountLabel={formatLibraryCount}
-      />
-      {config.settings.addon_plantarium ? (
-        <CardLibrary
-          title={t('library.plantTitle')}
-          description={t('library.plantDescription')}
-          cards={library.plants}
-          groupName="plants"
-          formatToken={formatCardVisual}
-          searchPlaceholder={t('library.searchPlaceholder')}
-          formatCountLabel={formatLibraryCount}
-        />
-      ) : null}
+        <aside className="app-sidebar">
+          <CardLibrary
+            title={t('library.cardTitle')}
+            description={t('library.cardDescription')}
+            cards={library.cards}
+            groupName="cards"
+            formatToken={formatCardVisual}
+            searchPlaceholder={t('library.searchPlaceholder')}
+            formatCountLabel={formatLibraryCount}
+          />
+          {config.settings.addon_plantarium ? (
+            <CardLibrary
+              title={t('library.plantTitle')}
+              description={t('library.plantDescription')}
+              cards={library.plants}
+              groupName="plants"
+              formatToken={formatCardVisual}
+              searchPlaceholder={t('library.searchPlaceholder')}
+              formatCountLabel={formatLibraryCount}
+            />
+          ) : null}
+        </aside>
+      </div>
     </div>
   );
 }

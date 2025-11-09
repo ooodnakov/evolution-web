@@ -16,6 +16,29 @@ body {
   width: 100%;
 }
 
+.app-layout {
+  display: flex;
+  align-items: flex-start;
+  gap: 24px;
+}
+
+.app-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.app-sidebar {
+  width: 340px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.app-sidebar section {
+  margin-bottom: 0;
+}
+
 .language-toggle {
   display: flex;
   justify-content: flex-end;
@@ -131,6 +154,25 @@ button:hover {
   display: flex;
   flex-wrap: wrap;
   gap: 16px;
+}
+
+.card-list--library {
+  margin-top: 4px;
+}
+
+.library-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.library-group__title {
+  margin: 0 0 12px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #52606d;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
 }
 
 .card-token {
@@ -320,6 +362,13 @@ button:hover {
 @media (max-width: 768px) {
   section {
     padding: 16px;
+  }
+  .app-layout {
+    flex-direction: column;
+  }
+  .app-sidebar {
+    width: 100%;
+    position: static;
   }
   .player-header {
     flex-direction: column;
