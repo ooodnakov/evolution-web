@@ -2,10 +2,17 @@ const fs = require('fs');
 const path = require('path');
 const express = require('express');
 const parser = require('@babel/parser');
+const yaml = require('yaml-js');
 
 const ROOT = path.resolve(__dirname, '..', '..');
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const CARDS_DIR = path.join(ROOT, 'shared/models/game/evolution/cards');
+const I18N_DIR = path.join(ROOT, 'i18n');
+
+const SUPPORTED_LANGUAGES = [
+  {code: 'en', file: 'en-en', label: 'English'},
+  {code: 'ru', file: 'ru-ru', label: 'Русский'}
+];
 
 const toDisplayName = (value = '') => value
   .replace(/^Card/, '')
@@ -40,9 +47,23 @@ const parseModule = (content) => {
   }
 };
 
+const extractTraitName = (expression) => {
+  if (!expression) return null;
+  if (expression.type === 'MemberExpression') {
+    if (expression.property) {
+      if (expression.property.type === 'Identifier') return expression.property.name;
+      if (expression.property.type === 'StringLiteral') return expression.property.value;
+    }
+    return null;
+  }
+  if (expression.type === 'Identifier') return expression.name;
+  if (expression.type === 'StringLiteral') return expression.value;
+  return null;
+};
+
 const collectCardNames = () => {
   const files = fs.readdirSync(CARDS_DIR).filter((file) => file.endsWith('.js'));
-  const names = new Set();
+  const names = new Map();
   files.forEach((file) => {
     const content = fs.readFileSync(path.join(CARDS_DIR, file), 'utf8');
     const ast = parseModule(content);
@@ -52,13 +73,20 @@ const collectCardNames = () => {
       if (node.declaration.type !== 'VariableDeclaration') return;
       node.declaration.declarations.forEach((declaration) => {
         if (declaration.id && declaration.id.type === 'Identifier' && declaration.id.name.startsWith('Card')) {
-          names.add(declaration.id.name);
+          const traits = [];
+          if (declaration.init && declaration.init.type === 'CallExpression') {
+            declaration.init.arguments.forEach((argument) => {
+              const traitName = extractTraitName(argument);
+              if (traitName) traits.push(traitName);
+            });
+          }
+          names.set(declaration.id.name, {id: declaration.id.name, traits});
         }
       });
     });
   });
   names.delete('CardUnknown');
-  return Array.from(names);
+  return Array.from(names.values());
 };
 
 const collectTraitNames = () => {
@@ -133,14 +161,18 @@ const collectPhases = () => {
 };
 
 const makeCardLibrary = () => collectCardNames()
-  .map((name) => {
-    const base = name.replace(/^Card/, '');
+  .map(({id, traits}) => {
+    const base = id.replace(/^Card/, '');
     const seedName = base.toLowerCase();
+    const searchTokens = [id.toLowerCase(), seedName];
+    traits.forEach((trait) => searchTokens.push(trait.toLowerCase()));
     return {
-      id: name,
-      name: toDisplayName(name),
+      id,
+      name: toDisplayName(id),
       seedName,
-      search: `${name.toLowerCase()} ${seedName}`
+      category: 'card',
+      traits,
+      search: searchTokens.join(' ')
     };
   })
   .sort((a, b) => a.name.localeCompare(b.name));
@@ -159,14 +191,76 @@ const makePlantLibrary = () => collectPlantNames()
     id: seedName,
     name: toDisplayName(seedName),
     seedName,
+    category: 'plant',
     search: seedName.toLowerCase()
   }))
   .sort((a, b) => a.name.localeCompare(b.name));
+
+const readLanguageFile = (fileName) => {
+  try {
+    const filePath = path.join(I18N_DIR, `${fileName}.yml`);
+    const content = fs.readFileSync(filePath, 'utf8');
+    return yaml.load(content);
+  } catch (error) {
+    // eslint-disable-next-line no-console
+    console.warn(`Failed to load translations for ${fileName}:`, error.message);
+    return null;
+  }
+};
+
+const normalizeTranslationValue = (value) => {
+  if (!value) return null;
+  if (typeof value === 'string') return value;
+  if (typeof value === 'object') {
+    if (typeof value._ === 'string') return value._;
+    if (typeof value.name === 'string') return value.name;
+    if (typeof value.value === 'string') return value.value;
+  }
+  return null;
+};
+
+const extractTraitTranslations = (doc) => {
+  const target = doc && doc.Game && doc.Game.Trait;
+  if (!target) return {};
+  return Object.entries(target).reduce((acc, [key, value]) => {
+    const normalized = normalizeTranslationValue(value);
+    if (normalized) acc[key] = normalized;
+    return acc;
+  }, {});
+};
+
+const extractPlantTranslations = (doc) => {
+  const target = doc && doc.Game && doc.Game.Plant;
+  if (!target) return {};
+  return Object.entries(target).reduce((acc, [key, value]) => {
+    const normalized = normalizeTranslationValue(value);
+    if (normalized) acc[key] = normalized;
+    return acc;
+  }, {});
+};
+
+const buildTranslationBundle = () => {
+  const traitLabels = {};
+  const plantLabels = {};
+
+  SUPPORTED_LANGUAGES.forEach((language) => {
+    const doc = readLanguageFile(language.file);
+    traitLabels[language.code] = extractTraitTranslations(doc);
+    plantLabels[language.code] = extractPlantTranslations(doc);
+  });
+
+  return {
+    languages: SUPPORTED_LANGUAGES.map(({code, label}) => ({code, label})),
+    traitLabels,
+    plantLabels
+  };
+};
 
 const cardLibrary = makeCardLibrary();
 const traitLibrary = makeTraitLibrary();
 const plantLibrary = makePlantLibrary();
 const phases = collectPhases();
+const translationBundle = buildTranslationBundle();
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -178,7 +272,8 @@ app.get('/api/library', (req, res) => {
     cards: cardLibrary,
     traits: traitLibrary,
     plants: plantLibrary,
-    phases
+    phases,
+    translations: translationBundle
   });
 });
 
