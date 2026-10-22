@@ -170,10 +170,9 @@ const validateNode = (node, value, label) => {
     return;
   }
   if (node.bool !== undefined) {
-    expect(
-      value === true || value === false || value === 0 || value === 1,
-      `${label} bool`
-    ).to.equal(true);
+    // MultiBinary(1): a one-element bit array on the wire.
+    expect(value, `${label} bool bits`).to.be.an('array').with.lengthOf(1);
+    expect([0, 1], `${label} bool bit`).to.include(value[0]);
     return;
   }
   if (node.int8 !== undefined) {
@@ -279,14 +278,14 @@ describe('rl/node/observation', () => {
       expect(observation.global.addons).to.deep.equal(
         schema.addons.map((name) => (name === 'plantarium' ? 1 : 0))
       );
-      expect(observation.global.half_deck).to.equal(false);
+      expect(observation.global.half_deck).to.deep.equal([0]);
 
       expect(observation.players).to.have.lengthOf(2);
       expect(observation.players[0]).to.deep.equal({
         seat: 0,
-        playing: true,
-        ended: false,
-        acted: false,
+        playing: [1],
+        ended: [0],
+        acted: [0],
         hand_count: 2,
         animal_count: 1,
       });
@@ -316,7 +315,7 @@ describe('rl/node/observation', () => {
       const {game} = buildGame({p1Animals: false});
       const observation = observe(game, 'p0', makeView());
       expect(observation.players[1].animal_count).to.equal(0);
-      expect(observation.players[1].playing).to.equal(true);
+      expect(observation.players[1].playing).to.deep.equal([1]);
       expect(observation.animals).to.have.lengthOf(1);
     });
 
@@ -420,7 +419,7 @@ describe('rl/node/observation', () => {
       expect(traitRowOf(plant, PlantTraitHiddenCarnivorous)).to.not.equal(undefined);
       expect(traitRowOf(plant, PlantTraitHiddenIntellect)).to.not.equal(undefined);
       const carnivorous = traitRowOf(plant, PlantTraitHiddenCarnivorous);
-      expect(carnivorous.disabled).to.equal(false);
+      expect(carnivorous.disabled).to.deep.equal([0]);
       expect(carnivorous.cooldowns).to.deep.equal([]);
       expect(carnivorous.value_kind).to.equal(0);
     });

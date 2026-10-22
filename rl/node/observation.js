@@ -284,7 +284,7 @@ export const createObservation = (options = {}) => {
       const linked = linkedRef(trait);
       return {
         type: requireTypeId('all_trait_types', trait.type),
-        disabled: !!trait.disabled,
+        disabled: [trait.disabled ? 1 : 0],
         covers: Number.isInteger(trait.covers) ? trait.covers : 0,
         link_source: trait.linkSource === true ? 1 : 0,
         linked_entity_kind: linked.kind,
@@ -297,7 +297,7 @@ export const createObservation = (options = {}) => {
 
     const neutralTraitRow = (traitType) => ({
       type: requireTypeId('all_trait_types', traitType),
-      disabled: false,
+      disabled: [0],
       covers: 0,
       link_source: 0,
       linked_entity_kind: 0,
@@ -327,15 +327,15 @@ export const createObservation = (options = {}) => {
       deck_count: game.deck == null ? 0 : game.deck.size,
       active_players: game.getActualPlayers().size,
       addons: addonNames.map((name) => (settings[`addon_${name}`] ? 1 : 0)),
-      half_deck: !!settings.halfDeck,
+      half_deck: [settings.halfDeck ? 1 : 0],
     };
 
     // ---- players ---------------------------------------------------------
     const players = game.players.toList().map((player) => ({
       seat: player.index,
-      playing: player.playing,
-      ended: player.ended,
-      acted: player.acted,
+      playing: [player.playing ? 1 : 0],
+      ended: [player.ended ? 1 : 0],
+      acted: [player.acted ? 1 : 0],
       hand_count: player.hand.size,
       animal_count: player.continent.size,
     })).toArray();

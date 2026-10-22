@@ -119,6 +119,7 @@ class EvolutionAECEnv(AECEnv):
         self._cumulative_rewards: dict[str, float] = {}
 
         self._engine: EngineProcess | None = None
+        self.catalog: dict[str, Any] | None = None
         self._decision_id: int | None = None
         self._observations: dict[str, Any] = {}
         self._snapshots: dict[int, dict[str, Any]] = {}
@@ -135,6 +136,7 @@ class EvolutionAECEnv(AECEnv):
                 node_executable=self.node_executable,
                 config=self.config,
             )
+            self.catalog = self._engine.catalog
         return self._engine
 
     def _require_engine(self) -> EngineProcess:
@@ -154,10 +156,45 @@ class EvolutionAECEnv(AECEnv):
         info.setdefault("committed", bool(frame.get("committed", False)))
         return info
 
+    def _normalize_observation(self, observation: Any) -> Any:
+        """Convert schema array fields to numpy arrays for Gym/AEC sampling.
+
+        `action_mask` must be an ndarray for `Discrete.sample(mask)`; inactive
+        agents expose empty choices, so they get a single zero entry matching
+        their `Discrete(1)` action space.
+        """
+        if not isinstance(observation, Mapping):
+            return observation
+        obs = dict(observation)
+        mask = obs.get("action_mask")
+        obs["action_mask"] = np.asarray(mask if mask else [0], dtype=np.int8)
+
+        global_view = obs.get("global")
+        if isinstance(global_view, Mapping):
+            global_view = dict(global_view)
+            if "addons" in global_view:
+                global_view["addons"] = np.asarray(global_view["addons"], dtype=np.int8)
+            obs["global"] = global_view
+
+        animals = obs.get("animals")
+        if isinstance(animals, list):
+            normalized = []
+            for animal in animals:
+                if isinstance(animal, Mapping):
+                    animal = dict(animal)
+                    if "flags" in animal:
+                        animal["flags"] = np.asarray(animal["flags"], dtype=np.int8)
+                normalized.append(animal)
+            obs["animals"] = normalized
+        return obs
+
     def _cache_observations(self, frame: Mapping[str, Any]) -> None:
         observations = frame.get("observations") or {}
         if isinstance(observations, Mapping):
-            self._observations = dict(observations)
+            self._observations = {
+                agent: self._normalize_observation(observation)
+                for agent, observation in observations.items()
+            }
 
     # --------------------------------------------------------------- reset
     def reset(
@@ -291,7 +328,7 @@ class EvolutionAECEnv(AECEnv):
         engine = self._engine
         if engine is None:
             raise RuntimeError("reset() must be called before observe()")
-        observation = engine.observe(agent)
+        observation = self._normalize_observation(engine.observe(agent))
         self._observations[agent] = observation
         return observation
 

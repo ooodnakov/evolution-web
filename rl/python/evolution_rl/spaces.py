@@ -54,8 +54,10 @@ class VariableSequence(spaces.Sequence):
     def contains(self, x: Any) -> bool:
         if isinstance(x, (list, tuple)):
             return all(self.feature_space.contains(item) for item in x)
-        if isinstance(x, np.ndarray) and x.size == 0:
-            return True
+        if isinstance(x, np.ndarray):
+            if x.size == 0:
+                return True
+            return all(self.feature_space.contains(item) for item in x.tolist())
         return super().contains(x)
 
 
