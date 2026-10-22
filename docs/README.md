@@ -1,5 +1,6 @@
 # Documentation
 
+- [`commands.md`](commands.md) — copy-paste recipes for setup, web, RL tests, rollouts, matrix monitoring, benchmark, training, debugging and cleanup.
 - [`rl/plan.md`](rl/plan.md) — approved full plan for the RL environment (scope, constraints, waves, acceptance gates).
 - [`rl/implementation-notes.md`](rl/implementation-notes.md) — what was built, verification results, engine defects fixed, known gaps.
 - [`research/README.md`](research/README.md) — index of architecture, training, framework and evaluation research.

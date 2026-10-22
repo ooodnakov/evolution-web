@@ -48,6 +48,8 @@ Game-end side effects (room self-destruct, `toDatabase`, logging) live in `serve
 
 ## Development Commands
 
+More copy-paste recipes (matrix monitoring, checkpoint inspection, cleanup): [`docs/commands.md`](docs/commands.md).
+
 ```bash
 npm ci --ignore-scripts          # install JS deps from package-lock.json
 npm run build                    # webpack server + client bundles
