@@ -567,6 +567,7 @@ export const server$animalDeath = (gameId, type, animalId, data) => (dispatch, g
   const viviAnimalIds = animal.getTraits()
     .filter(trait => trait.type === tt.TraitTrematode)
     .map(trait => game.locateAnimal(trait.linkAnimalId))
+    .filter(Boolean)
     .filter(possibleVivi => {
       const traitViviparous = possibleVivi.hasTrait(tt.TraitViviparous);
       return (
