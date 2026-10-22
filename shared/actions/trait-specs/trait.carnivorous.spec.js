@@ -155,4 +155,27 @@ settings:
     clientStore0.dispatch(traitActivateRequest('$A', tt.TraitCarnivorous, '$B'));
     clientStore0.dispatch(traitAnswerRequest(tt.TraitMimicry, '$C'));
   })
+
+  it('Default INTELLECT answer targets the defence animal', () => {
+    const [{serverStore, ParseGame}, {clientStore0}] = mockGame(2);
+    const gameId = ParseGame(`
+deck: 10 camo
+phase: feeding
+players:
+  - continent: $A carn int wait
+  - continent: $B run
+settings:
+  timeTraitResponse: 100
+`);
+    const {selectGame, findAnimal} = makeGameSelectors(serverStore.getState, gameId);
+
+    clientStore0.dispatch(traitActivateRequest('$A', tt.TraitCarnivorous, '$B'));
+    expect(selectGame().question, 'Intellect question is pending').ok;
+
+    serverStore.dispatch(testShiftTime(100));
+
+    expect(selectGame().question, 'question is resolved').null;
+    expect(findAnimal('$A'), 'attacker survived').ok;
+    expect(findAnimal('$B'), 'defenceless prey is killed').null;
+  })
 });

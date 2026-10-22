@@ -68,6 +68,7 @@ import {
 } from "../models/game/evolution/traitsData/hunt";
 import {logTarget} from "./log.util";
 import {server$animalDeath} from "./game";
+import {validateGameRequest} from "./game-validation";
 
 /**
  * Activation
@@ -755,23 +756,16 @@ export const server$startFeeding = (gameId, animalId, amount, sourceType, source
 export const server$takeFoodRequest = (gameId, playerId, animalId, plantId) => (dispatch, getState) => {
   logger.verbose('traitTakeFoodRequest:', playerId, animalId, plantId);
   const game = selectGame(getState, gameId);
-  checkGameDefined(game);
-  checkGameHasUser(game, playerId);
-  checkGamePhase(game, PHASE.FEEDING);
-  checkPlayerCanAct(game, playerId);
-
-  const animal = getOrThrowPlayerAnimal(game, playerId, animalId);
+  const {animal, plant} = validateGameRequest(game, playerId, {
+    type: 'traitTakeFoodRequest'
+    , animalId
+    , plantId
+  }, 'after_sharing');
 
   if (!game.isPlantarium()) {
-    throwError(getErrorOfAnimalEatingFromGame(game, animal));
-
     dispatch(server$startCooldownList(gameId, getFeedingCooldownList(gameId, playerId)));
     dispatch(server$startFeedingFromGame(game.id, animal.id));
   } else if (game.isPlantarium()) {
-    const plant = getOrThrowGamePlant(game, plantId);
-
-    throwError(getErrorOfAnimalEatingFromPlant(game, animal, plant));
-
     const errorOfPlantCounterAttack = !!getErrorOfPlantCounterAttack(game, animal, plant);
     if (errorOfPlantCounterAttack) {
       dispatch(server$startCooldownList(gameId, getFeedingCooldownList(gameId, playerId)));
@@ -902,7 +896,7 @@ const server$traitQuestionDefaultAction = (gameId, questionId) => (dispatch, get
   const attackTrait = game.locateTrait(game.question.traitId, game.question.sourceAid, game.question.sourcePid);
   const targetAnimal = game.locateAnimal(game.question.targetAid, game.question.targetPid);
   if (game.question.type === QuestionRecord.INTELLECT) {
-    const targetId = getTraitDataModel(tt.TraitIntellect).customFns.defaultTarget(game, attackAnimal, attackTrait, defenseAnimal);
+    const targetId = getTraitDataModel(tt.TraitIntellect).customFns.defaultTarget(game, attackAnimal, attackTrait, targetAnimal);
     dispatch(server$traitIntellectAnswer(gameId, questionId, tt.TraitIntellect, targetId));
   } else if (game.question.type === QuestionRecord.DEFENSE) {
     const defaultDefence = findDefaultActiveDefence(game, attackAnimal, attackTrait, targetAnimal);
@@ -1080,39 +1074,25 @@ export const traitClientToServer = {
   }
   , traitTakeShellRequest: ({gameId, animalId, traitId}, {userId}) => (dispatch, getState) => {
     const game = selectGame(getState, gameId);
-    checkGameDefined(game);
-    checkGameHasUser(game, userId);
-    checkGamePhase(game, PHASE.FEEDING);
-    checkPlayerCanAct(game, userId);
-
-    const animal = getOrThrowPlayerAnimal(game, userId, animalId);
+    const request = {type: 'traitTakeShellRequest', animalId, traitId};
+    const staged = validateGameRequest(game, userId, request, 'before_sharing');
 
     if (!dispatch(server$autoFoodSharing(gameId, userId))) return;
 
-    throwError(checkAnimalCanTakeShellFails(game, animal));
-
-    const trait = game.getArea().shells.get(traitId);
-    if (!trait) {
-      throw new ActionCheckError(ERR.GAME_TRAIT_NOTFOUND, {gameId, traitId});
-    }
+    validateGameRequest(game, userId, request, 'after_sharing', staged);
 
     dispatch(server$game(gameId, startCooldown(gameId, TRAIT_COOLDOWN_LINK.EATING, TRAIT_COOLDOWN_DURATION.ROUND, TRAIT_COOLDOWN_PLACE.PLAYER, userId)));
-    dispatch(server$game(gameId, traitTakeShell(gameId, AREA.STANDARD, animalId, trait)));
+    dispatch(server$game(gameId, traitTakeShell(gameId, AREA.STANDARD, animalId, game.getArea().shells.get(traitId))));
     dispatch(server$playerActed(gameId, userId));
   }
   , traitTakeCoverRequest: ({gameId, animalId, plantId}, {userId}) => (dispatch, getState) => {
     const game = selectGame(getState, gameId);
-    checkGameDefined(game);
-    checkGameHasUser(game, userId);
-    checkGamePhase(game, PHASE.FEEDING);
-    checkPlayerCanAct(game, userId);
-
-    const animal = getOrThrowPlayerAnimal(game, userId, animalId);
+    const request = {type: 'traitTakeCoverRequest', animalId, plantId};
+    const staged = validateGameRequest(game, userId, request, 'before_sharing');
 
     if (!dispatch(server$autoFoodSharing(gameId, userId))) return;
 
-    const plant = getOrThrowGamePlant(game, plantId);
-    throwError(getErrorOfAnimalTakingCover(game, animal, plant));
+    validateGameRequest(game, userId, request, 'after_sharing', staged);
 
     dispatch(server$traitTakeCover(gameId, userId, animalId, plantId));
   }
@@ -1152,14 +1132,11 @@ export const traitClientToServer = {
   , traitActivateRequest: ({gameId, sourceAid, traitId, targets}, {userId}) => (dispatch, getState) => {
     logger.verbose('traitActivateRequest', gameId, sourceAid, traitId, ...targets);
     let game = selectGame(getState, gameId);
-    checkGameDefined(game);
-    checkGameHasUser(game, userId);
-    checkGamePhase(game, PHASE.FEEDING);
-    let sourceAnimal = getOrThrowPlayerAnimal(game, userId, sourceAid);
+    const request = {type: 'traitActivateRequest', sourceAid, traitId, targets};
+    const staged = validateGameRequest(game, userId, request, 'before_sharing');
 
-    const trait = getOrThrowAnimalTrait(gameId, sourceAnimal, traitId);
     //@TODO Communication // trait type checking here smells =\
-    if (trait.type !== tt.TraitCommunication && trait.type !== tt.TraitCooperation) {
+    if (staged.trait.type !== tt.TraitCommunication && staged.trait.type !== tt.TraitCooperation) {
       const autoFoodSharingResult = dispatch(server$autoFoodSharing(gameId, userId));
       if (autoFoodSharingResult) {
         logger.debug(`server$autoFoodSharing/continue`);
@@ -1169,11 +1146,7 @@ export const traitClientToServer = {
       }
     }
     game = selectGame(getState, gameId);
-    sourceAnimal = getOrThrowPlayerAnimal(game, userId, sourceAid);
-    throwError(trait.getErrorOfUse(game, sourceAnimal, ...targets));
-
-    const target = checkTraitActivation_Target(game, sourceAnimal, trait, ...targets);
-    if (!trait.getDataModel().transient) checkPlayerCanAct(game, userId);
+    const {trait, target} = validateGameRequest(game, userId, request, 'after_sharing', staged);
 
     const result = dispatch(server$traitActivate(gameId, sourceAid, trait, target));
     if (result === void 0) {
@@ -1187,28 +1160,19 @@ export const traitClientToServer = {
   , traitAnswerRequest: ({gameId, questionId, traitId, targetId}, {userId}) => (dispatch, getState) => {
     logger.verbose('traitAnswerRequest', gameId, questionId, traitId, targetId);
     const game = selectGame(getState, gameId);
-    checkGameDefined(game);
-    const question = getOrThrowQuestion(game, questionId);
-    if (game.status.phase !== PHASE.FEEDING && game.status.phase !== PHASE.AMBUSH) {
-      throw new ActionCheckError(ERR.GAME_PHASE, {
-        gameId
-        , phase: game.status.phase
-        , targetPhase: `${PHASE.FEEDING}/${PHASE.AMBUSH}`
-      });
-    }
+    const {question} = validateGameRequest(game, userId, {
+      type: 'traitAnswerRequest'
+      , questionId
+      , traitId
+      , targetId
+    }, 'before_sharing');
 
     const {type, sourcePid, targetPid} = question;
     switch (type) {
       case QuestionRecord.DEFENSE:
-        if (userId !== targetPid) {
-          throw new ActionCheckError(ERR.GAME_PLAYER_ACT_ON_QUESTION, {gameId, userId, targetPid});
-        }
         dispatch(server$traitDefenceAnswer(gameId, questionId, traitId, targetId));
         break;
       case QuestionRecord.INTELLECT:
-        if (userId !== sourcePid) {
-          throw new ActionCheckError(ERR.GAME_PLAYER_ACT_ON_QUESTION, {gameId, userId, targetPid});
-        }
         dispatch(server$traitIntellectAnswer(gameId, questionId, traitId, targetId));
         break;
     }

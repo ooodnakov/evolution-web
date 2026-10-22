@@ -38,6 +38,7 @@ import {getIntRandom} from "../utils/randomGenerator";
 import * as ptt from "../models/game/evolution/plantarium/plantTraitTypes";
 import {CardModel} from "../models/game/CardModel";
 import * as tt from "../models/game/evolution/traitTypes";
+import {validateGameRequest} from "./game-validation";
 
 // region game
 export const gameSpawnPlants = (gameId, plants) => ({
@@ -65,13 +66,16 @@ export const server$gamePestPlants = (gameId) => (dispatch, getState) => {
   const game = selectGame(getState, gameId);
   const plantsList = game.plants.toList();
   let pestMap = {}; // Plants affected by pests
-  game.someAnimal((animal) => {
-    if (animal.hasTrait(tt.TraitPest)) {
-      const plant = plantsList.get(getIntRandom(0, plantsList.size))
-      if (!pestMap[plant.id]) pestMap[plant.id] = 0
-      pestMap[plant.id] -= 1;
-    }
-  })
+  // An empty plant list has no plant to infect: skip the RNG draw entirely.
+  if (plantsList.size > 0) {
+    game.someAnimal((animal) => {
+      if (animal.hasTrait(tt.TraitPest)) {
+        const plant = plantsList.get(getIntRandom(0, plantsList.size - 1));
+        if (!pestMap[plant.id]) pestMap[plant.id] = 0;
+        pestMap[plant.id] -= 1;
+      }
+    });
+  }
   dispatch(server$game(gameId, gamePestPlants(gameId, pestMap)));
 };
 
@@ -171,13 +175,8 @@ export const plantsClientToServer = {
   gamePlantAttackRequest: ({gameId, plantId, targetId}, {userId}) => (dispatch, getState) => {
     if (!dispatch(server$autoFoodSharing(gameId, userId))) return;
     const game = selectGame(getState, gameId);
-    checkGameDefined(game);
-    checkGameHasUser(game, userId);
-    checkGamePhase(game, PHASE.FEEDING);
-    checkPlayerCanAct(game, userId);
-    const animal = getOrThrowGameAnimal(game, targetId);
-    const plant = getOrThrowGamePlant(game, plantId);
-    throwError(getErrorOfPlantAttack(game, animal, plant, userId));
+    const request = {type: 'gamePlantAttackRequest', plantId, targetId};
+    const {animal, plant} = validateGameRequest(game, userId, request, 'after_sharing');
     dispatch(server$startCooldownList(gameId, [
       startCooldown(gameId, TRAIT_COOLDOWN_LINK.EATING, TRAIT_COOLDOWN_DURATION.ROUND, TRAIT_COOLDOWN_PLACE.PLAYER, userId)
     ]));
@@ -186,14 +185,12 @@ export const plantsClientToServer = {
   , plantTraitActivateRequest: ({gameId, plantId, traitId, targets}, {userId}) => (dispatch, getState) => {
     logger.verbose('plantTraitActivateRequest', gameId, plantId, traitId, ...targets);
     let game = selectGame(getState, gameId);
-    checkGameDefined(game);
-    checkGameHasUser(game, userId);
-    checkGamePhase(game, PHASE.FEEDING);
-    const plant = getOrThrowGamePlant(game, plantId);
-    const trait = plant.hasTrait(traitId);
-    throwError(getErrorOfEntityTraitActivation(game, userId, plant, trait, ...targets));
-
-    if (!trait.getDataModel().transient) checkPlayerCanAct(game, userId);
+    const {plant, trait} = validateGameRequest(game, userId, {
+      type: 'plantTraitActivateRequest'
+      , plantId
+      , traitId
+      , targets
+    }, 'before_sharing');
 
     const target = trait.getTarget(game, plant, ...targets);
 

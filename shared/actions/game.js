@@ -55,6 +55,7 @@ import ParasiteVisitor from "../models/game/evolution/plantarium/ParasiteVisitor
 import {getIntRandom} from "../utils/randomGenerator";
 import {gameNow} from "../utils/gameRuntime";
 import traitDataModel from "../models/game/evolution/TraitDataModel";
+import {validateGameRequest} from "./game-validation";
 
 // region Game
 // region Init
@@ -803,28 +804,18 @@ export const server$gameEnd = (gameId, finished) => (dispatch, getState) => {
 export const gameClientToServer = {
   gameEndTurnRequest: ({gameId}, {userId}) => (dispatch, getState) => {
     const game = selectGame(getState, gameId);
-    checkGameDefined(game);
-    checkGameHasUser(game, userId);
-    checkPlayerCanAct(game, userId);
-    if (game.status.phase !== PHASE.FEEDING && game.status.phase !== PHASE.DEPLOY) {
-      throw new ActionCheckError(ERR.GAME_PHASE, {
-        gameId
-        , phase: game.status.phase
-        , targetPhase: `${PHASE.FEEDING}/${PHASE.DEPLOY}`
-      });
-    }
+    validateGameRequest(game, userId, {type: 'gameEndTurnRequest'}, 'before_sharing');
     logger.verbose(`gameEndTurnRequest: ${userId} (${game.getPlayer(userId).acted ? 'acted' : 'not acted'})`);
     dispatch(server$gameEndTurn(gameId, userId, 'gameEndTurnRequest'));
   }
   , gameDeployAnimalRequest: ({gameId, cardId, animalPosition = 0}, {userId}) => (dispatch, getState) => {
     // console.time('gameDeployAnimalRequest body');
     const game = selectGame(getState, gameId);
-    checkGameDefined(game);
-    checkGameHasUser(game, userId);
-    checkGamePhase(game, PHASE.DEPLOY);
-    checkPlayerCanAct(game, userId);
-    checkValidAnimalPosition(game, userId, animalPosition);
-    const card = checkPlayerHasCard(game, userId, cardId);
+    const {card} = validateGameRequest(game, userId, {
+      type: 'gameDeployAnimalRequest'
+      , cardId
+      , animalPosition
+    }, 'before_sharing');
     const animal = AnimalModel.new(userId, card.trait1);
     logger.verbose('selectGame > gameDeployAnimalRequest:', cardId);
     // console.timeEnd('gameDeployAnimalRequest body');
@@ -834,64 +825,13 @@ export const gameClientToServer = {
   }
   , gameDeployTraitRequest: ({gameId, cardId, entityId, alternateTrait, linkId}, {userId}) => (dispatch, getState) => {
     const game = selectGame(getState, gameId);
-    checkGameDefined(game);
-    checkGameHasUser(game, userId);
-    checkGamePhase(game, PHASE.DEPLOY);
-    checkPlayerCanAct(game, userId);
-
-
-    const card = checkPlayerHasCard(game, userId, cardId);
-    const traitData = card.getTraitDataModel(alternateTrait);
-    if (!traitData) {
-      throw new ActionCheckError(ERR.GAME_CARD_TRAIT_NOTFOUND, {
-        gameId
-        , userId
-        , cardId
-        , trait1: card.trait1
-        , trait2: card.trait2
-        , alternateTrait
-        , linkId
-      });
-    }
-
-    let entity;
-    let entityOwnerId;
-
-    if (traitData.cardTargetType & CTT_PARAMETER.ANIMAL) {
-      entity = game.locateAnimal(entityId);
-      if (entity) {
-        entityOwnerId = entity.ownerId;
-      }
-    } else if (traitData.cardTargetType & CTT_PARAMETER.PLANT) {
-      entity = game.getPlant(entityId);
-    }
-
-    if (!entity) {
-      throw new ActionCheckError(ERR.GAME_ENTITY_NOTFOUND, {gameId, entityId});
-    }
-
-    throwError(traitData.getErrorOfTraitPlacement(entity));
-    throwError(traitData.getErrorOfTraitPlacement_User(userId, entityOwnerId));
-
-    let linkedEntity;
-    let linkedEntityOwnerId;
-    if (traitData.linkTargetType) {
-      if (traitData.linkTargetType & CTT_PARAMETER.PLANT) {
-        linkedEntity = game.getPlant(linkId);
-      } else if (traitData.linkTargetType & CTT_PARAMETER.ANIMAL) {
-        linkedEntity = game.locateAnimal(linkId);
-        if (linkedEntity) {
-          linkedEntityOwnerId = linkedEntity.ownerId;
-        }
-      }
-
-      if (!linkedEntity)
-        throw new ActionCheckError(ERR.GAME_LINK_NOTFOUND, {gameId, linkId});
-      if (entity === linkedEntity)
-        throw new ActionCheckError(ERR.GAME_LINK_SELF, {gameId, linkId});
-      throwError(traitData.getErrorOfTraitPlacement(linkedEntity));
-      throwError(traitData.getErrorOfTraitPlacement_LinkUser(userId, linkedEntityOwnerId));
-    }
+    const {card, traitData, entity, linkedEntity} = validateGameRequest(game, userId, {
+      type: 'gameDeployTraitRequest'
+      , cardId
+      , entityId
+      , alternateTrait
+      , linkId
+    }, 'before_sharing');
 
     let traits = [];
     if (traitData.linkTargetType) {
@@ -937,19 +877,11 @@ export const gameClientToServer = {
   }
   , gameDeployRegeneratedAnimalRequest: ({gameId, cardId, animalId}, {userId}) => (dispatch, getState) => {
     const game = selectGame(getState, gameId);
-    checkGameDefined(game);
-    checkGameHasUser(game, userId);
-    checkGamePhase(game, PHASE.REGENERATION);
-    checkPlayerHasCard(game, userId, cardId);
-    const animal = getOrThrowPlayerAnimal(game, userId, animalId);
-    if (!animal.hasFlag(TRAIT_ANIMAL_FLAG.REGENERATION)) {
-      throw new ActionCheckError(ERR.GAME_ANIMAL_FLAG, {
-        gameId,
-        userId,
-        animalId,
-        flag: TRAIT_ANIMAL_FLAG.REGENERATION
-      });
-    }
+    validateGameRequest(game, userId, {
+      type: 'gameDeployRegeneratedAnimalRequest'
+      , cardId
+      , animalId
+    }, 'before_sharing');
     dispatch(server$game(gameId, gameDeployRegeneratedAnimal(gameId, userId, cardId, animalId, 'HAND')));
     if (dispatch(server$gamePhaseCheckEndRegeneration(gameId))) {
       dispatch(server$gamePhaseEndRegeneration(gameId));
