@@ -19,9 +19,9 @@ import {
   , server$traitSetAnimalFlag
   , server$traitSetValue
   , startCooldown
-  , server$gameDeployAnimalFromDeck
   , server$startCooldownList
-} from '../../../../actions/actions';
+} from '../../../../actions/trait';
+import {server$gameDeployAnimalFromDeck} from '../../../../actions/game';
 
 import {
   getStaticDefenses,

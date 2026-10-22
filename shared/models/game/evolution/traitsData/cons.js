@@ -16,17 +16,16 @@ import {
   , server$traitStartCooldown
   , server$traitAnimalAttachTrait
   , server$traitAnimalRemoveTrait
-  , server$tryNeoplasmDeath, server$game
-} from '../../../../actions/actions';
+  , server$tryNeoplasmDeath
+  , server$traitAnimalRecombinateTraits
+  , server$traitAnimalRemoveTrait_onRemove
+  , traitAnimalRemoveTrait
+} from "../../../../actions/trait";
+import {server$game} from '../../../../actions/generic';
 
 import {selectGame} from '../../../../selectors';
 import {huntSetFlag, server$huntProcess} from "./hunt";
 import {AnimalModel} from "../AnimalModel";
-import {
-  server$traitAnimalRecombinateTraits,
-  server$traitAnimalRemoveTrait_onRemove,
-  traitAnimalRemoveTrait
-} from "../../../../actions/trait";
 
 export const TraitAedificator = {type: tt.TraitAedificator};
 

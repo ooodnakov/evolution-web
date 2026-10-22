@@ -1,5 +1,5 @@
 import {Record} from 'immutable';
-import uuid from 'uuid';
+import {gameId} from '../../../utils/gameRuntime';
 
 import * as tt from './traitTypes'
 import * as ptt from './plantarium/plantTraitTypes'
@@ -52,7 +52,7 @@ export class TraitModel extends Record({
     const data = getTraitDataModel(type);
     invariant(!!data, `trait.data(${type}) is falsy`);
     return TraitModel.fromServer({
-      id: uuid.v4()
+      id: gameId('trait')
       , type
       , covers: data.coverSlots
     });

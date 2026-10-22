@@ -1,6 +1,7 @@
 import logger from '~/shared/utils/logger';
 import {createReducer, ensureParameter, validateParameter} from '../../shared/utils';
 import {getIntRandom, getRandom} from '../../shared/utils/randomGenerator';
+import {gameNow} from '../../shared/utils/gameRuntime';
 import {Map, List, OrderedMap, Set, fromJS} from 'immutable';
 import {PHASE, AREA, HuntRecord, AmbushRecord} from '../../shared/models/game/GameModel';
 import {getTraitDataModel, TraitModel} from '../../shared/models/game/evolution/TraitModel';
@@ -27,7 +28,7 @@ const byId = id => object => object.id === id;
 
 //const addToGameLog = (message) => (game) => game.update('log', log => log.push(message));
 const addToGameLog = (message) => (game) => game.update('log', log => log.push({
-  timestamp: Date.now()
+  timestamp: gameNow()
   , message
 }));
 

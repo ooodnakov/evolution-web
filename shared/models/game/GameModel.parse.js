@@ -1,8 +1,8 @@
 import logger from "../../utils/logger";
-import uuid from 'uuid';
 import invariant from 'invariant';
 import {OrderedMap} from 'immutable';
-import merge from 'lodash/merge'
+import merge from 'lodash/merge';
+import {gameId, gameNow} from "../../utils/gameRuntime";
 
 import {GameModel, generateDeck, StatusRecord, PHASE, generatePlantDeck, AREA} from './GameModel';
 import {PlayerModel} from './PlayerModel';
@@ -189,9 +189,9 @@ export const parseFromRoom = (room, string = '') => {
   }, []);
 
   return GameModel.fromServer(new GameModel({
-    id: uuid.v4()
+    id: gameId('game')
     , roomId: room.id
-    , timeCreated: Date.now()
+    , timeCreated: gameNow()
     , food: seed.food || 0
     , status: new StatusRecord({
       roundPlayer: room.users.first()

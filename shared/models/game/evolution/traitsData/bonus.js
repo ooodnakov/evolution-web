@@ -16,7 +16,7 @@ import {
   server$startFeedingFromGame
   , server$traitStartCooldown
   , server$traitSetAnimalFlag
-} from '../../../../actions/actions';
+} from '../../../../actions/trait';
 
 import * as tt from '../traitTypes';
 import {

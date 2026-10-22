@@ -1,8 +1,8 @@
 import {Record, Range} from 'immutable';
-import uuid from 'uuid';
 
 import {getTraitDataModel} from './evolution/TraitModel'
 import * as cardsData from './evolution/cards/index'
+import {gameId} from '../../utils/gameRuntime'
 
 
 export class CardModel extends Record({
@@ -15,9 +15,8 @@ export class CardModel extends Record({
   static new(cardType, forcedId) {
     if (!(cardType in cardsData)) throw Error(`card#${JSON.stringify(cardType)} not found`);
     const cardData = cardsData[cardType];
-    const id = forcedId ? forcedId // if Forced, then ok, forced
-      : GLOBAL_BROWSER ? Math.floor(Math.random() * 0xFFFF) // else if browser (for testing)
-      : uuid.v4();
+    const id = forcedId // if forced, keep the caller-supplied id
+      || gameId('card');
     return CardModel.fromServer({
       id
       , ...cardData

@@ -10,6 +10,7 @@ import {fromJS} from "immutable";
 import {TraitModel} from "../TraitModel";
 import {AnimalModel} from "../AnimalModel";
 import {server$huntProcess} from "./hunt";
+import {getIntRandom} from "../../../../utils/randomGenerator";
 
 
 // Тревожное: Когда $A атаковано хищником, оно получает $F.
@@ -70,7 +71,7 @@ export const TraitMammal = {
       animal.getTraits(true).size === 0
       && animal.getNeededFood() > 0
     ).toIndexedSeq()
-    const randomAnimalIndex = Math.floor(Math.random() * animals.size)
+    const randomAnimalIndex = getIntRandom(0, animals.size - 1)
     return animals.get(randomAnimalIndex)
   }
 };

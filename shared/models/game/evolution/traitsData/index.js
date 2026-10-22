@@ -21,8 +21,8 @@ import {
   , server$traitSetValue
   , server$traitNotify_End
   , server$traitConvertFat
-  , server$gamePlantUpdateFood
-} from '../../../../actions/actions';
+} from '../../../../actions/trait';
+import {server$gamePlantUpdateFood} from '../../../../actions/game.plantarium';
 
 import {getIntRandom} from '../../../../utils/randomGenerator';
 

@@ -1,5 +1,5 @@
 import {Record, List, Map, OrderedMap, Seq} from 'immutable';
-import uuid from 'uuid';
+import {gameId} from '../../../utils/gameRuntime';
 import {getTraitDataModel, TraitModel} from './TraitModel';
 
 import {
@@ -32,7 +32,7 @@ export class AnimalModel extends Record({
 }) {
   static new(ownerId, traitType) {
     let animal = new AnimalModel({
-      id: uuid.v4()
+      id: gameId('animal')
       , ownerId
     });
     if (getTraitDataModel(traitType)?.autoAttach) {

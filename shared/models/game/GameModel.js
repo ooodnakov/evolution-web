@@ -17,7 +17,7 @@ import {
   , Deck_lifecycle
 } from './GameSettings';
 
-import uuid from 'uuid';
+import {gameId, gameNow} from '../../utils/gameRuntime';
 import {ensureParameter} from '../../utils';
 import {getIntRandom} from '../../utils/randomGenerator';
 import {selectUserName} from '../../selectors';
@@ -68,7 +68,7 @@ export class QuestionRecord extends Record({
 }) {
   static new(type, userId, sourceEid, sourcePid, traitId, targetAnimal, turnRemainingTime) {
     return new QuestionRecord({
-      id: uuid.v4()
+      id: gameId('question')
       , type
       , userId
       , sourcePid: sourcePid
@@ -76,7 +76,7 @@ export class QuestionRecord extends Record({
       , traitId
       , targetPid: targetAnimal.ownerId
       , targetAid: targetAnimal.id
-      , time: Date.now()
+      , time: gameNow()
       , turnRemainingTime
     });
   }
@@ -317,9 +317,9 @@ export class GameModel extends Record({
     const deckPlants = generatePlantDeck(deckPlantsConfig, true);
 
     return new GameModel({
-      id: uuid.v4()
+      id: gameId('game')
       , roomId: room.id
-      , timeCreated: Date.now()
+      , timeCreated: gameNow()
       , deck
       , deckPlants
       , players
@@ -375,7 +375,7 @@ export class GameModel extends Record({
       id: game.id
       , roomId: game.roomId
       , timeCreated: game.timeCreated
-      , timeEnd: Date.now()
+      , timeEnd: gameNow()
       , players: game.players.map(player => ({
         id: player.id
         , name: selectUserName(getState, player.id)
@@ -575,8 +575,8 @@ function doShuffle(array) {
 
   // While there are elements in the array
   while (counter > 0) {
-    // Pick a random index
-    let index = Math.floor(Math.random() * counter);
+    // Pick a random index (inclusive [0, counter - 1])
+    let index = getIntRandom(0, counter - 1);
 
     // Decrease counter by 1
     counter--;

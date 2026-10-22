@@ -1,6 +1,6 @@
 import {Record, List, Map, OrderedMap} from 'immutable';
 import invariant from 'invariant';
-import uuid from 'uuid';
+import {gameId} from '../../../../utils/gameRuntime';
 import {TraitModel} from '../TraitModel';
 
 import {TRAIT_ANIMAL_FLAG, CTT_PARAMETER} from '../constants';
@@ -24,7 +24,7 @@ export default class PlantModel extends Record({
   static new(type) {
     const data = PlantDataModel.new(type);
     return new PlantModel({
-      id: uuid.v4()
+      id: gameId('plant')
       , type
       , food: data.startingFood
       , covers: data.coverSlots
