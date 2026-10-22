@@ -82,6 +82,8 @@ class EngineProcess:
         self.forward_stderr = bool(forward_stderr)
         self.stderr_lines: deque[str] = deque(maxlen=max(1, int(stderr_limit)))
         self.config = dict(config) if config is not None else None
+        self.hello_result: dict[str, Any] | None = None
+        self.catalog: dict[str, Any] | None = None
 
         if repo_root is not None:
             root = Path(repo_root).expanduser().resolve()
@@ -265,6 +267,9 @@ class EngineProcess:
         result = self.request("hello", payload)
         if not isinstance(result, dict):
             raise EngineProcessError("ENGINE_PROTOCOL", "hello result must be an object")
+        self.hello_result = result
+        catalog = result.get("catalog")
+        self.catalog = catalog if isinstance(catalog, dict) else None
         return result
 
     def reset(
