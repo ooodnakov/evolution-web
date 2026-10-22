@@ -16,7 +16,7 @@ import itertools
 import json
 import sys
 import time
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
@@ -280,16 +280,131 @@ def _run_task(task: Mapping[str, Any], catalog_cache: Any = None) -> dict[str, A
                 pass
 
 
-def run_tasks(tasks: Sequence[Mapping[str, Any]], workers: int = 1) -> list[dict[str, Any]]:
+def _format_seconds(seconds: float) -> str:
+    seconds = max(0, int(seconds))
+    hours, remainder = divmod(seconds, 3600)
+    minutes, secs = divmod(remainder, 60)
+    if hours:
+        return f"{hours}h{minutes:02d}m"
+    if minutes:
+        return f"{minutes}m{secs:02d}s"
+    return f"{secs}s"
+
+
+def _episode_status(result: Mapping[str, Any]) -> str:
+    if result.get("error"):
+        return "error"
+    if result.get("truncated"):
+        return "truncated"
+    if result.get("terminated"):
+        return "natural"
+    return "incomplete"
+
+
+def _progress_counts(results: Sequence[Mapping[str, Any]]) -> dict[str, int]:
+    counts = _empty_counts()
+    for result in results:
+        counts["episodes"] += 1
+        if result.get("error"):
+            counts["errors"] += 1
+        elif result.get("truncated"):
+            counts["truncated"] += 1
+        elif result.get("terminated"):
+            counts["natural_terminal"] += 1
+    return counts
+
+
+def _describe_task(task: Mapping[str, Any]) -> str:
+    config = task.get("config") or {}
+    return (
+        f"{task.get('policy')} p{config.get('numPlayers')} "
+        f"addons={len(config.get('addons') or [])} seed={task.get('seed')}"
+    )
+
+
+def _write_status(path: Path, payload: Mapping[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(path.name + ".tmp")
+    temporary.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+    temporary.replace(path)
+
+
+def run_tasks(
+    tasks: Sequence[Mapping[str, Any]],
+    workers: int = 1,
+    *,
+    progress: bool = False,
+    status_file: str | Path | None = None,
+    progress_interval: float = 0.0,
+) -> list[dict[str, Any]]:
     if workers < 1:
         raise ValueError("--workers must be at least 1")
-    if workers == 1 or len(tasks) <= 1:
-        return [_run_task(task) for task in tasks]
+    total = len(tasks)
+    status_path = Path(status_file) if status_file else None
+    started = time.monotonic()
+    last_report = started
     results: list[dict[str, Any]] = []
-    with ThreadPoolExecutor(max_workers=int(workers)) as pool:
-        futures = [pool.submit(_run_task, task) for task in tasks]
-        for future in futures:
-            results.append(future.result())
+
+    def report(task: Mapping[str, Any], result: Mapping[str, Any], force: bool = False) -> None:
+        nonlocal last_report
+        results.append(result)  # type: ignore[arg-type]
+        now = time.monotonic()
+        if progress and not force and progress_interval > 0 and now - last_report < progress_interval:
+            return
+        last_report = now
+        elapsed = now - started
+        done = len(results)
+        rate = done / elapsed if elapsed > 0 else 0.0
+        eta = (total - done) / rate if rate > 0 else 0.0
+        counts = _progress_counts(results)
+        if progress:
+            print(
+                "[progress] {done}/{total} elapsed={elapsed} eta={eta} "
+                "rate={rate:.2f}/s natural={natural_terminal} truncated={truncated} "
+                "errors={errors} last={last} -> {status}".format(
+                    done=done,
+                    total=total,
+                    elapsed=_format_seconds(elapsed),
+                    eta=_format_seconds(eta),
+                    rate=rate,
+                    natural_terminal=counts["natural_terminal"],
+                    truncated=counts["truncated"],
+                    errors=counts["errors"],
+                    last=_describe_task(task),
+                    status=_episode_status(result),
+                ),
+                file=sys.stderr,
+                flush=True,
+            )
+        if status_path is not None:
+            _write_status(
+                status_path,
+                {
+                    "done": done,
+                    "total": total,
+                    "elapsed_seconds": round(elapsed, 3),
+                    "eta_seconds": round(eta, 3),
+                    "rate_per_second": round(rate, 4),
+                    "counts": counts,
+                    "last": {
+                        "policy": task.get("policy"),
+                        "players": (task.get("config") or {}).get("numPlayers"),
+                        "addons": len((task.get("config") or {}).get("addons") or []),
+                        "seed": task.get("seed"),
+                        "status": _episode_status(result),
+                    },
+                },
+            )
+
+    if workers == 1 or total <= 1:
+        for task in tasks:
+            report(task, _run_task(task))
+    else:
+        with ThreadPoolExecutor(max_workers=int(workers)) as pool:
+            futures = {pool.submit(_run_task, task): task for task in tasks}
+            for future in as_completed(futures):
+                report(futures[future], future.result())
+
     return results
 
 
@@ -370,6 +485,30 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--seeds", default=None, help="inclusive seed range A:B")
     parser.add_argument("--scenario", default=None, help="YAML scenario file")
     parser.add_argument(
+        "--progress",
+        dest="progress",
+        action="store_true",
+        default=None,
+        help="print per-episode progress to stderr (default: on for --matrix)",
+    )
+    parser.add_argument(
+        "--no-progress",
+        dest="progress",
+        action="store_false",
+        help="disable progress output",
+    )
+    parser.add_argument(
+        "--status-file",
+        default=None,
+        help="write a live JSON status snapshot after every episode",
+    )
+    parser.add_argument(
+        "--progress-interval",
+        type=float,
+        default=0.0,
+        help="minimum seconds between progress lines (0 = every episode)",
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="print the planned episode count without starting engines",
@@ -414,7 +553,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         return 0
 
-    results = run_tasks(tasks, workers=args.workers)
+    progress = args.progress if args.progress is not None else bool(args.matrix)
+    results = run_tasks(
+        tasks,
+        workers=args.workers,
+        progress=progress,
+        status_file=args.status_file,
+        progress_interval=args.progress_interval,
+    )
     summary = summarize(results, mode="matrix" if args.matrix else "rollout")
     summary["profile"] = args.profile
     summary["planned_episodes"] = len(tasks)
