@@ -193,6 +193,7 @@ def episode_tasks(
     seeds: str | None = None,
     scenario: str | None = None,
     policies: Sequence[str] = POLICIES,
+    addons: Sequence[str] | None = None,
 ) -> list[dict[str, Any]]:
     """Build the deterministic task list for one CLI invocation."""
     tasks: list[dict[str, Any]] = []
@@ -215,14 +216,25 @@ def episode_tasks(
                 )
         return tasks
 
-    if profile not in PROFILES:
+    if profile not in PROFILES and addons is None:
         raise ValueError(f"unknown profile {profile!r}")
     if not 2 <= players <= 8:
         raise ValueError("--players must be between 2 and 8")
     if episodes < 1:
         raise ValueError("--episodes must be positive")
-    config = _config(profile, players)
-    for seed_value in range(int(seed), int(seed) + int(episodes)):
+
+    if addons is not None:
+        unknown = sorted({addon for addon in addons if addon not in ADDONS})
+        if unknown:
+            raise ValueError(f"unknown addons {unknown}")
+        config = {"numPlayers": int(players), "addons": list(addons)}
+    else:
+        config = _config(profile, players)
+
+    seed_values = parse_seeds(seeds) if seeds is not None else range(
+        int(seed), int(seed) + int(episodes)
+    )
+    for seed_value in seed_values:
         tasks.append(
             {
                 "config": dict(config),
@@ -336,18 +348,49 @@ def run_tasks(
     progress: bool = False,
     status_file: str | Path | None = None,
     progress_interval: float = 0.0,
+    failures_file: str | Path | None = None,
+    fail_fast: bool = False,
+    failure_limit: int = 25,
 ) -> list[dict[str, Any]]:
     if workers < 1:
         raise ValueError("--workers must be at least 1")
     total = len(tasks)
     status_path = Path(status_file) if status_file else None
+    failures_path = Path(failures_file) if failures_file else None
+    if failures_path is not None:
+        failures_path.parent.mkdir(parents=True, exist_ok=True)
+        failures_path.write_text("", encoding="utf-8")
     started = time.monotonic()
     last_report = started
     results: list[dict[str, Any]] = []
+    failures: list[dict[str, Any]] = []
+    aborted = False
+
+    def failure_entry(task: Mapping[str, Any], result: Mapping[str, Any]) -> dict[str, Any]:
+        config = task.get("config") or {}
+        error = result.get("error") or {}
+        return {
+            "policy": task.get("policy"),
+            "players": config.get("numPlayers"),
+            "addons": list(config.get("addons") or []),
+            "seed": task.get("seed"),
+            "error": {
+                "type": error.get("type"),
+                "code": error.get("code"),
+                "message": error.get("message"),
+            },
+        }
 
     def report(task: Mapping[str, Any], result: Mapping[str, Any], force: bool = False) -> None:
-        nonlocal last_report
+        nonlocal last_report, aborted
         results.append(result)  # type: ignore[arg-type]
+        if result.get("error"):
+            entry = failure_entry(task, result)
+            failures.append(entry)
+            if failures_path is not None:
+                with failures_path.open("a", encoding="utf-8") as stream:
+                    stream.write(json.dumps(entry, sort_keys=True) + "\n")
+            aborted = fail_fast
         now = time.monotonic()
         if progress and not force and progress_interval > 0 and now - last_report < progress_interval:
             return
@@ -386,6 +429,8 @@ def run_tasks(
                     "eta_seconds": round(eta, 3),
                     "rate_per_second": round(rate, 4),
                     "counts": counts,
+                    "failure_total": len(failures),
+                    "failures": failures[-failure_limit:],
                     "last": {
                         "policy": task.get("policy"),
                         "players": (task.get("config") or {}).get("numPlayers"),
@@ -399,11 +444,19 @@ def run_tasks(
     if workers == 1 or total <= 1:
         for task in tasks:
             report(task, _run_task(task))
+            if aborted:
+                break
     else:
-        with ThreadPoolExecutor(max_workers=int(workers)) as pool:
+        pool = ThreadPoolExecutor(max_workers=int(workers))
+        try:
             futures = {pool.submit(_run_task, task): task for task in tasks}
             for future in as_completed(futures):
                 report(futures[future], future.result())
+                if aborted:
+                    pool.shutdown(wait=False, cancel_futures=True)
+                    break
+        finally:
+            pool.shutdown(wait=True)
 
     return results
 
@@ -485,6 +538,21 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--seeds", default=None, help="inclusive seed range A:B")
     parser.add_argument("--scenario", default=None, help="YAML scenario file")
     parser.add_argument(
+        "--addons",
+        default=None,
+        help="comma-separated addon flags for a single-config run, e.g. base2,bonus",
+    )
+    parser.add_argument(
+        "--failures-file",
+        default=None,
+        help="append one JSON line per failing episode to this file",
+    )
+    parser.add_argument(
+        "--fail-fast",
+        action="store_true",
+        help="stop scheduling new episodes after the first error",
+    )
+    parser.add_argument(
         "--progress",
         dest="progress",
         action="store_true",
@@ -531,6 +599,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         matrix=args.matrix,
         seeds=args.seeds,
         scenario=scenario_text,
+        addons=[item.strip() for item in args.addons.split(",") if item.strip()]
+        if args.addons
+        else None,
     )
 
     if args.dry_run:
@@ -560,6 +631,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         progress=progress,
         status_file=args.status_file,
         progress_interval=args.progress_interval,
+        failures_file=args.failures_file,
+        fail_fast=args.fail_fast,
     )
     summary = summarize(results, mode="matrix" if args.matrix else "rollout")
     summary["profile"] = args.profile

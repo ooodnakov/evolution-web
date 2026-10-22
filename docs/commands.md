@@ -101,6 +101,15 @@ uv run --locked python -m evolution_rl.rollout --matrix full --seeds 0:0 --worke
 # progress on stderr, live status JSON, planned episode count
 uv run --locked python -m evolution_rl.rollout --matrix full --seeds 0:0 --workers 2 --progress
 uv run --locked python -m evolution_rl.rollout --matrix full --seeds 0:0 --dry-run
+
+# reproduce one matrix cell without the matrix
+uv run --locked python -m evolution_rl.rollout --addons base2,timeToFly --players 8 \
+  --episodes 3 --seed 0 --policy survival --workers 1
+
+# collect failure details (JSON lines) and stop after the first error
+uv run --locked python -m evolution_rl.rollout --matrix full --seeds 0:0 --workers 8 \
+  --status-file rl/runs/matrix_00_status.json --failures-file rl/runs/matrix_00_failures.jsonl \
+  --fail-fast
 ```
 
 Monitor and stop:
