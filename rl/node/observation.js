@@ -237,12 +237,12 @@ export const createObservation = (options = {}) => {
           };
         }
         // A raw id that is not part of the visible projection must never be
-        // stringified into the observation.
-        return fail();
+        // stringified into the observation; an unresolvable reference is "none".
+        return noneValue();
       }
       if (typeof value === 'object' && !Array.isArray(value)) {
         const sourceType = value.sourceType;
-        if (sourceType === 'GAME' || sourceType === 'PLANT') {
+        if (typeof sourceType === 'string') {
           let sourceSlot = -1;
           if (sourceType === 'PLANT') {
             const plantRef = plantEntriesById.get(value.sourceId);
@@ -251,7 +251,7 @@ export const createObservation = (options = {}) => {
           return {
             ...noneValue(),
             value_kind: 5,
-            source_type: requireTypeId('feeding_source_types', sourceType),
+            source_type: typeId(catalog, 'feeding_source_types', sourceType),
             source_slot: sourceSlot,
             auto_share: value.autoShare ? 1 : 0,
           };
@@ -272,7 +272,7 @@ export const createObservation = (options = {}) => {
         entries.forEach((duration, link) => {
           rows.push({
             key: requireTypeId('cooldown_keys', link),
-            remaining: requireTypeId('cooldown_durations', duration),
+            remaining: Number.isInteger(duration) ? duration : 0,
           });
         });
       });

@@ -503,12 +503,15 @@ describe('rl/node/observation', () => {
       expectSchemaConformant(observation);
     });
 
-    it('rejects unknown value shapes and unresolved raw ids', () => {
+    it('rejects unknown value shapes and drops unresolved raw ids', () => {
       const badObject = buildValueGame({trait: 'TraitFatTissue', value: {nope: true}});
       expect(() => observe(badObject, 'p0', makeView())).to.throw('OBSERVATION_SCHEMA');
 
-      const badId = buildValueGame({trait: 'TraitIntellect', value: 'trait_deadbeef'});
-      expect(() => observe(badId, 'p0', makeView())).to.throw('OBSERVATION_SCHEMA');
+      const badId = buildValueGame({trait: 'TraitMimicry', value: 'trait_deadbeef'});
+      const observation = observe(badId, 'p0', makeView());
+      const row = traitRowOf(observation.animals[0], 'TraitMimicry');
+      expect(row.value_kind).to.equal(0);
+      expect(JSON.stringify(observation)).to.not.contain('trait_deadbeef');
     });
   });
 

@@ -75,11 +75,11 @@ const errorNormalizer = () => (next) => (action) => {
   }
 };
 
-export const createEnvironmentStore = () => {
+export const createEnvironmentStore = (preloadedState = new EnvironmentState()) => {
   const scheduler = createScheduler();
   const store = createStore(
     environmentReducer
-    , new EnvironmentState()
+    , preloadedState
     , applyMiddleware(
       errorNormalizer
       , thunk
