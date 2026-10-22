@@ -329,6 +329,35 @@ describe('environment', function environmentSuite() {
       env.close();
     });
 
+    it('parses a linked trait pair and keeps the game playable to terminal', () => {
+      const scenario = [
+        'phase: feeding'
+        , 'food: 3'
+        , "deck: ''"
+        , 'players:'
+        , '  - continent: $A TraitCommunication$B, $B +'
+        , '  - continent: $C +'
+      ].join('\n');
+      const env = createEnvironment({numPlayers: 2});
+      let frame = env.reset({seed: 2, scenario});
+
+      const aTrait = env.game().locateAnimal('$A').traits.find(trait => trait.type === 'TraitCommunication');
+      const bTrait = env.game().locateAnimal('$B').traits.find(trait => trait.type === 'TraitCommunication');
+      expect(aTrait.linkAnimalId).to.equal('$B');
+      expect(aTrait.linkId).to.equal(bTrait.id);
+      expect(bTrait.linkAnimalId).to.equal('$A');
+      expect(bTrait.linkId).to.equal(aTrait.id);
+
+      let steps = 0;
+      while (frame.actor && steps < 2000) {
+        frame = env.step({decisionId: frame.decisionId, choiceIndex: 0});
+        steps += 1;
+      }
+      expect(frame.terminated.player_0).to.equal(true);
+      expect(frame.truncated.player_0).to.equal(false);
+      env.close();
+    });
+
     it('rejects malformed scenarios without an active episode', () => {
       const env = createEnvironment({numPlayers: 2, addons: []});
       const expectScenarioError = (scenario) => {

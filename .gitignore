@@ -4,3 +4,7 @@ node_modules
 /dist/
 /server/config/config.js
 stats.json
+
+graphify-out/
+
+**/__pycache__/**
