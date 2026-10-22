@@ -1,9 +1,18 @@
-"""Short CPU REINFORCE proof for the Evolution RL environment.
+"""Short CPU/GPU REINFORCE proof for the Evolution RL environment.
 
 The smoke run is deliberately small: 32 real base-game episodes (no ``base2``
 addon), a shared policy/value network for every seat, and eight evaluation
 episodes from a reloaded checkpoint.  It does not claim that the policy became
 strong; it proves that legal rollouts produce a usable gradient signal.
+
+The default ``--device auto`` uses CUDA only when ``torch.cuda.is_available()``
+is true, otherwise CPU; ``EVOLUTION_RL_DEVICE`` is the fallback when the CLI
+value is ``auto``.  The locked CPU wheel remains the default: GPU use requires
+a CUDA torch wheel, for example::
+
+    uv pip install --index-url https://download.pytorch.org/whl/cu126 torch
+
+The smoke bottleneck is the Node engine/JSONL transport, not the tiny network.
 
 Usage::
 
@@ -18,6 +27,7 @@ import copy
 import hashlib
 import json
 import math
+import os
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -70,6 +80,25 @@ def _require_torch() -> None:
         raise RuntimeError(
             "train_smoke requires the 'train' extra: uv run --locked --extra train ..."
         )
+
+
+def _resolve_device(requested: str | None = "auto") -> Any:
+    _require_torch()
+    choice = (requested or "auto").strip().lower()
+    if choice == "auto":
+        fallback = os.environ.get("EVOLUTION_RL_DEVICE", "").strip().lower()
+        if fallback and fallback != "auto":
+            choice = fallback
+    if choice == "auto":
+        choice = "cuda" if torch.cuda.is_available() else "cpu"
+    if choice not in ("cpu", "cuda"):
+        raise ValueError(f"unsupported device {requested!r}; expected auto, cpu or cuda")
+    if choice == "cuda" and not torch.cuda.is_available():
+        raise RuntimeError(
+            "CUDA was requested but this torch build has no CUDA device; "
+            "install a CUDA wheel or use --device cpu"
+        )
+    return torch.device(choice)
 
 
 def _schema() -> dict[str, Any]:
@@ -207,9 +236,10 @@ if nn is not None:  # pragma: no branch - class definitions need torch
             return self.layers(inputs)
 
     class ObservationEncoder(nn.Module):
-        def __init__(self, spec: FeatureSpec) -> None:
+        def __init__(self, spec: FeatureSpec, device: Any = "cpu") -> None:
             super().__init__()
             self.spec = spec
+            self.device = torch.device(device)
             self.type_embed = nn.Embedding(spec.type_vocab, EMBED_DIM)
             self.enum_embed = nn.ModuleDict(
                 {
@@ -228,17 +258,20 @@ if nn is not None:  # pragma: no branch - class definitions need torch
             self.choice_encoder = RowMlp(4 * EMBED_DIM + 3)
 
         # -- embedding helpers -------------------------------------------
+        def _tensor(self, values: Any, dtype: Any = None) -> Any:
+            return torch.tensor(values, dtype=dtype, device=self.device)
+
         def _type(self, value: Any) -> Any:
             index = max(0, min(int(self.spec.type_vocab) - 1, _int(value)))
-            return self.type_embed(torch.tensor([index], dtype=torch.long)).squeeze(0)
+            return self.type_embed(self._tensor([index], dtype=torch.long)).squeeze(0)
 
         def _enum(self, name: str, value: Any) -> Any:
             size = max(1, int(self.spec.enums[name]))
             index = max(0, min(size - 1, _int(value)))
-            return self.enum_embed[name](torch.tensor([index], dtype=torch.long)).squeeze(0)
+            return self.enum_embed[name](self._tensor([index], dtype=torch.long)).squeeze(0)
 
         def _zeros(self) -> Any:
-            return torch.zeros(HIDDEN_DIM)
+            return torch.zeros(HIDDEN_DIM, device=self.device)
 
         def _mean(self, rows: Sequence[Any]) -> Any:
             if not rows:
@@ -256,7 +289,7 @@ if nn is not None:  # pragma: no branch - class definitions need torch
                     self._enum("entity", row.get("linked_entity_kind")),
                     self._enum("value", row.get("value_kind")),
                     self._enum("source", row.get("source_type")),
-                    torch.tensor(
+                    self._tensor(
                         [
                             float(bool(_int(row.get("disabled")))),
                             _norm(row.get("covers")),
@@ -285,7 +318,7 @@ if nn is not None:  # pragma: no branch - class definitions need torch
             flags = _bits(row.get("flags"), len(SCHEMA["animal_flags"]))
             features = torch.cat(
                 [
-                    torch.tensor(
+                    self._tensor(
                         [
                             _norm(row.get("owner")),
                             _norm(row.get("position")),
@@ -306,7 +339,7 @@ if nn is not None:  # pragma: no branch - class definitions need torch
             features = torch.cat(
                 [
                     self._type(row.get("type")),
-                    torch.tensor(
+                    self._tensor(
                         [
                             _norm(row.get("food")),
                             _norm(row.get("covers")),
@@ -336,7 +369,7 @@ if nn is not None:  # pragma: no branch - class definitions need torch
             features = torch.cat(
                 [
                     self._type(row.get("type")),
-                    torch.tensor(
+                    self._tensor(
                         [_norm(row.get("value")), _norm(row.get("slot"))],
                         dtype=torch.float,
                     ),
@@ -346,7 +379,7 @@ if nn is not None:  # pragma: no branch - class definitions need torch
 
         def _player(self, row: Any) -> Any:
             row = _mapping(row)
-            features = torch.tensor(
+            features = self._tensor(
                 [
                     _norm(row.get("seat")),
                     float(bool(_int(row.get("playing")))),
@@ -365,7 +398,7 @@ if nn is not None:  # pragma: no branch - class definitions need torch
             features = torch.cat(
                 [
                     self._enum("phase", row.get("phase")),
-                    torch.tensor(
+                    self._tensor(
                         [
                             _norm(row.get("turn")),
                             _norm(row.get("round")),
@@ -392,7 +425,7 @@ if nn is not None:  # pragma: no branch - class definitions need torch
                     self._enum("choice", row.get("choice_kind")),
                     self._type(row.get("type_id")),
                     self._enum("entity", row.get("entity_kind")),
-                    torch.tensor(
+                    self._tensor(
                         [
                             _norm(row.get("entity_slot")),
                             _norm(row.get("trait_slot")),
@@ -412,7 +445,7 @@ if nn is not None:  # pragma: no branch - class definitions need torch
                     self._enum("entity", row.get("source_kind")),
                     self._enum("entity", row.get("target_kind")),
                     self._type(row.get("attack_trait_type")),
-                    torch.tensor(
+                    self._tensor(
                         [
                             _norm(row.get("source_slot")),
                             _norm(row.get("target_slot")),
@@ -503,19 +536,22 @@ if nn is not None:  # pragma: no branch - class definitions need torch
             if choice_inputs:
                 choice_tensor = torch.stack(choice_inputs, dim=0)
             else:
-                choice_tensor = torch.zeros(0, 4 * HIDDEN_DIM)
+                choice_tensor = torch.zeros(
+                    0, 4 * HIDDEN_DIM, device=self.device
+                )
 
             mask = observation.get("action_mask")
             valid_values = _bits(mask, len(choices))
-            valid = torch.tensor([bool(value) for value in valid_values], dtype=torch.bool)
+            valid = self._tensor([bool(value) for value in valid_values], dtype=torch.bool)
             return context, choice_tensor, valid
 
     class CandidatePolicy(nn.Module):
         """Candidate scorer plus a value head over the same context."""
 
-        def __init__(self, spec: FeatureSpec) -> None:
+        def __init__(self, spec: FeatureSpec, device: Any = "cpu") -> None:
             super().__init__()
-            self.encoder = ObservationEncoder(spec)
+            self.device = torch.device(device)
+            self.encoder = ObservationEncoder(spec, device=self.device)
             input_dim = 5 * HIDDEN_DIM + 4 * HIDDEN_DIM
             self.candidate = RowMlp(input_dim)
             self.logit = nn.Linear(HIDDEN_DIM, 1)
@@ -533,10 +569,15 @@ if nn is not None:  # pragma: no branch - class definitions need torch
             return self.value(self.value_head(context)).squeeze(-1)
 
 
-def build_model(spec: FeatureSpec, seed: int = 7) -> Any:
+def build_model(spec: FeatureSpec, seed: int = 7, device: Any = "cpu") -> Any:
     _require_torch()
+    target = torch.device(device)
     torch.manual_seed(int(seed))
-    return CandidatePolicy(spec)
+    if target.type == "cuda":
+        torch.cuda.manual_seed_all(int(seed))
+    model = CandidatePolicy(spec, device=target)
+    model.to(target)
+    return model
 
 
 # -------------------------------------------------------------------- batches
@@ -558,8 +599,11 @@ class Episode:
     actions: list[int] = field(default_factory=list)
 
 
-def _collate(samples: Sequence[tuple[EncodedDecision, float]]) -> tuple[Any, Any, Any, Any, Any]:
+def _collate(
+    samples: Sequence[tuple[EncodedDecision, float]], device: Any = "cpu"
+) -> tuple[Any, Any, Any, Any, Any]:
     """Pad only inside this collator; logits for padding become ``-inf``."""
+    target_device = torch.device(device)
     max_choices = max(1, max(int(sample[0].choices.shape[0]) for sample in samples))
     contexts = []
     choices = []
@@ -572,12 +616,22 @@ def _collate(samples: Sequence[tuple[EncodedDecision, float]]) -> tuple[Any, Any
         choice_rows = decision.choices
         if pad:
             choice_rows = torch.cat(
-                [choice_rows, torch.zeros(pad, choice_rows.shape[1])], dim=0
+                [
+                    choice_rows,
+                    torch.zeros(
+                        pad, choice_rows.shape[1], device=target_device
+                    ),
+                ],
+                dim=0,
             )
         valid_rows = decision.valid
         if pad:
             valid_rows = torch.cat(
-                [valid_rows, torch.zeros(pad, dtype=torch.bool)], dim=0
+                [
+                    valid_rows,
+                    torch.zeros(pad, dtype=torch.bool, device=target_device),
+                ],
+                dim=0,
             )
         contexts.append(decision.context)
         choices.append(choice_rows)
@@ -588,8 +642,8 @@ def _collate(samples: Sequence[tuple[EncodedDecision, float]]) -> tuple[Any, Any
         torch.stack(contexts),
         torch.stack(choices),
         torch.stack(valid),
-        torch.tensor(chosen, dtype=torch.long),
-        torch.tensor(targets, dtype=torch.float),
+        torch.tensor(chosen, dtype=torch.long, device=target_device),
+        torch.tensor(targets, dtype=torch.float, device=target_device),
     )
 
 
@@ -701,7 +755,9 @@ def _optimize(
     gradients_finite = True
     for start in range(0, len(samples), chunk_size):
         chunk = samples[start : start + chunk_size]
-        context, choices, valid, chosen, targets = _collate(chunk)
+        context, choices, valid, chosen, targets = _collate(
+            chunk, getattr(model, "device", "cpu")
+        )
         logits = _batch_logits(model, context, choices, valid)
         log_probs = torch.log_softmax(logits, dim=-1)
         chosen_log_probs = log_probs.gather(1, chosen.unsqueeze(1)).squeeze(1)
@@ -987,7 +1043,12 @@ def _run_fixture_branch(branch: str) -> dict[str, Any]:
         env.close()
 
 
-def run_gradient_fixture(spec: FeatureSpec, catalog: Any, seed: int = 7) -> dict[str, Any]:
+def run_gradient_fixture(
+    spec: FeatureSpec,
+    catalog: Any,
+    seed: int = 7,
+    device: Any = "cpu",
+) -> dict[str, Any]:
     """Confirm the scripted natural outcomes, then prove a policy gradient."""
     _require_torch()
     safe = _run_fixture_branch("safe")
@@ -1005,7 +1066,7 @@ def run_gradient_fixture(spec: FeatureSpec, catalog: Any, seed: int = 7) -> dict
 
     scores = {"safe": safe["scores"], "poison": poison["scores"]}
 
-    model = build_model(spec, seed=seed)
+    model = build_model(spec, seed=seed, device=device)
     optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE)
     safe_decisions = safe["decisions"]
 
@@ -1021,7 +1082,7 @@ def run_gradient_fixture(spec: FeatureSpec, catalog: Any, seed: int = 7) -> dict
 
     before = log_probability()
     optimizer.zero_grad()
-    total = torch.zeros((), dtype=torch.float)
+    total = torch.zeros((), dtype=torch.float, device=model.device)
     for observation, chosen in safe_decisions:
         context, choices, valid = model.encoder(observation)
         logits = model.score(context, choices, valid)
@@ -1055,12 +1116,18 @@ def run_gradient_fixture(spec: FeatureSpec, catalog: Any, seed: int = 7) -> dict
 
 
 # ----------------------------------------------------------------------- run
-def run_smoke(episodes: int = 32, seed: int = 7, output: str | Path = "rl/runs/smoke") -> dict[str, Any]:
+def run_smoke(
+    episodes: int = 32,
+    seed: int = 7,
+    output: str | Path = "rl/runs/smoke",
+    device: Any = "auto",
+) -> dict[str, Any]:
     _require_torch()
     from . import raw_env
 
     if episodes < 1:
         raise ValueError("episodes must be positive")
+    target_device = _resolve_device(device)
     output_path = Path(output)
     output_path.mkdir(parents=True, exist_ok=True)
 
@@ -1072,7 +1139,7 @@ def run_smoke(episodes: int = 32, seed: int = 7, output: str | Path = "rl/runs/s
         env.close()
 
     spec = feature_spec(catalog)
-    model = build_model(spec, seed=seed)
+    model = build_model(spec, seed=seed, device=target_device)
     optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE)
     initial_hash = _state_hash(model)
 
@@ -1109,12 +1176,15 @@ def run_smoke(episodes: int = 32, seed: int = 7, output: str | Path = "rl/runs/s
         "schema_version": spec.schema_version,
         "config": training_config,
         "seed": int(seed),
+        "device": str(model.device),
     }
     torch.save(payload, checkpoint_path)
     checkpoint_hash = _checkpoint_hash(checkpoint_path)
 
-    reloaded = build_model(spec, seed=seed)
-    loaded = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+    reloaded = build_model(spec, seed=seed, device=target_device)
+    loaded = torch.load(
+        checkpoint_path, map_location=target_device, weights_only=False
+    )
     reloaded.load_state_dict(loaded["model"])
 
     evaluation_seeds = list(range(10000, 10008))
@@ -1128,13 +1198,16 @@ def run_smoke(episodes: int = 32, seed: int = 7, output: str | Path = "rl/runs/s
     fixture_error = None
     fixture = None
     try:
-        fixture = run_gradient_fixture(spec, catalog, seed=seed)
+        fixture = run_gradient_fixture(
+            spec, catalog, seed=seed, device=target_device
+        )
     except Exception as exc:  # report a real rule/engine failure without hiding it
         fixture_error = f"{type(exc).__name__}: {exc}"
 
     report = {
         "episodes": completed,
         "seed": int(seed),
+        "device": str(target_device),
         "config": training_config,
         "updates": updates,
         "losses_finite": all(update.get("finite", False) for update in updates),
@@ -1165,12 +1238,23 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--episodes", type=int, default=32)
     parser.add_argument("--seed", type=int, default=7)
     parser.add_argument("--output", default="rl/runs/smoke")
+    parser.add_argument(
+        "--device",
+        choices=["auto", "cpu", "cuda"],
+        default="auto",
+        help="torch device; EVOLUTION_RL_DEVICE is the fallback for auto",
+    )
     return parser
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    report = run_smoke(episodes=args.episodes, seed=args.seed, output=args.output)
+    report = run_smoke(
+        episodes=args.episodes,
+        seed=args.seed,
+        output=args.output,
+        device=args.device,
+    )
     print(json.dumps(report, indent=2, sort_keys=True))
     if not report["losses_finite"] or not report["gradients_finite"]:
         return 2

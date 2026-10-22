@@ -290,6 +290,8 @@ export class EvolutionEnvironment {
     this.seed = null;
     this.scenario = null;
     this.decision = null;
+    this.currentSlots = null;
+    this.slotsVersion = -1;
     this.decisionCounter = 0;
     this.stateVersion = 0;
     this.boundaryEpoch = 0;
@@ -376,8 +378,17 @@ export class EvolutionEnvironment {
   }
 
   // ------------------------------------------------------------- decisions
+  freshSlots() {
+    if (this.slotsVersion !== this.stateVersion || !this.currentSlots) {
+      this.currentSlots = entitiesOfGame(this.game());
+      this.slotsVersion = this.stateVersion;
+    }
+    return this.currentSlots;
+  }
+
   makeContext(primary, extra = {}) {
     const game = this.game();
+    const slots = this.freshSlots();
     return {
       game
       , projection: game.toOthers(primary.actor)
@@ -387,13 +398,14 @@ export class EvolutionEnvironment {
       , ambush: primary.ambush || null
       , regeneration: null
       , transient: extra.transient || null
+      , slots
       , revision: this.stateVersion
     };
   }
 
   entityRef(entityId) {
     if (!entityId) return null;
-    const slots = entitiesOfGame(this.game());
+    const slots = this.freshSlots();
     if (slots.animalById.has(entityId)) {
       return {kind: 'ANIMAL', slot: slots.animalById.get(entityId).slot};
     }
@@ -406,21 +418,13 @@ export class EvolutionEnvironment {
     return null;
   }
 
-  maskFor(choices, prefix, context) {
-    return choices.map((choice) => {
-      const next = [...prefix, choice];
-      try {
-        if (this.domain.isComplete(next, context)) return 1;
-        return this.domain.choices(next, context).length > 0 ? 1 : 0;
-      } catch (error) {
-        return 0;
-      }
-    });
-  }
-
   publishDecision({kind, actor, prefix, choices, primary, extra}) {
+    this.currentSlots = entitiesOfGame(this.game());
+    this.slotsVersion = this.stateVersion;
     const context = this.makeContext(primary, extra || {});
-    const mask = this.maskFor(choices, prefix, context);
+    // The enumerator only emits options with at least one admissible
+    // completion, so every current choice is an attemptable option.
+    const mask = choices.map(() => 1);
     this.decision = {
       id: ++this.decisionCounter
       , kind
@@ -430,6 +434,7 @@ export class EvolutionEnvironment {
       , mask
       , context
       , primary
+      , transient: (extra && extra.transient) || null
       , sourceAid: primary.sourceAid || null
       , targetAid: primary.targetAid || null
       , attackTraitType: primary.attackTraitType
@@ -488,6 +493,8 @@ export class EvolutionEnvironment {
 
   publishTerminal(truncated, reason = null) {
     const game = this.game();
+    this.currentSlots = game ? entitiesOfGame(game) : null;
+    this.slotsVersion = this.stateVersion;
     this.decision = {
       id: ++this.decisionCounter
       , kind: 'TERMINAL'
@@ -852,6 +859,7 @@ export class EvolutionEnvironment {
       , target: isActor ? this.entityRef(decision.targetAid) : null
       , attackTraitType: isActor ? decision.attackTraitType : -1
       , prefix: isActor ? decision.prefix : []
+      , slots: this.freshSlots()
     };
   }
 
@@ -965,6 +973,8 @@ export class EvolutionEnvironment {
     this.seed = core.seed;
     this.scenario = core.scenario;
     this.decision = null;
+    this.currentSlots = null;
+    this.slotsVersion = -1;
     this.observationCache.clear();
   }
 
@@ -972,7 +982,14 @@ export class EvolutionEnvironment {
     return {
       ...this.captureCore()
       , decision: this.decision
-        ? {id: this.decision.id, kind: this.decision.kind, actor: this.decision.actor, prefix: this.decision.prefix.slice(), primary: this.decision.primary}
+        ? {
+          id: this.decision.id
+          , kind: this.decision.kind
+          , actor: this.decision.actor
+          , prefix: this.decision.prefix.slice()
+          , primary: this.decision.primary
+          , transient: this.decision.transient
+        }
         : null
       , replayLength: this.replay ? this.replay.commands.length : 0
     };
@@ -1003,6 +1020,24 @@ export class EvolutionEnvironment {
 
     if (saved.kind === 'TERMINAL') {
       this.publishTerminal(!!this.terminalInfo && !!this.terminalInfo.truncated, this.terminalInfo ? this.terminalInfo.reason : null);
+      return this.frame();
+    }
+
+    if (saved.transient) {
+      this.currentSlots = entitiesOfGame(this.game());
+      const extra = {transient: saved.transient};
+      const context = this.makeContext(saved.primary, extra);
+      const choices = saved.prefix.length
+        ? this.domain.choices(saved.prefix, context)
+        : this.domain.rootChoices(context);
+      this.publishDecision({
+        kind: saved.kind
+        , actor: saved.actor
+        , prefix: saved.prefix
+        , choices
+        , primary: saved.primary
+        , extra
+      });
       return this.frame();
     }
 

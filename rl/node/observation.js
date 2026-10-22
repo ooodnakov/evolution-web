@@ -149,7 +149,7 @@ export const createObservation = (options = {}) => {
     const decisionKindName = pick(view.decisionKind, view.kind) || 'NORMAL';
     const decisionKind = requireTypeId('decision_kinds', decisionKindName);
 
-    const entities = entitiesOfGame(game);
+    const entities = view.slots || entitiesOfGame(game);
 
     // ---- local trait projection ------------------------------------------
     const animalEntriesById = new Map();
