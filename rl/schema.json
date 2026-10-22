@@ -1,0 +1,216 @@
+{
+  "schema_version": 1,
+  "protocol_version": 1,
+  "engine_version": "1.0.0",
+  "agent_note": "Authoritative contract between rl/node (producer), rl/python (consumer) and rl/node/worker.cjs (JSONL transport). Bump schema_version on any breaking change. Field order below is the canonical key order.",
+
+  "addons": ["base2", "timeToFly", "continents", "bonus", "plantarium", "customff", "lifecycle"],
+
+  "phase_values": ["PREPARE", "DEPLOY", "FEEDING", "AMBUSH", "EXTINCTION", "REGENERATION", "FINAL"],
+
+  "context_kinds": ["NORMAL", "DEFENSE", "INTELLECT", "AMBUSH", "REGENERATION", "TRANSIENT", "TERMINAL"],
+
+  "entity_kinds": ["NONE", "ANIMAL", "PLANT", "SHELL"],
+
+  "value_kinds": ["NONE", "BOOLEAN", "NUMBER", "TRAIT_REF", "PLANT_REF", "FEEDING_RECORD"],
+
+  "feeding_source_types": ["GAME", "PLANT"],
+
+  "animal_flags": ["HIBERNATED", "POISONED", "SHELL", "REGENERATION", "PARALYSED", "SHY", "IN_COVER", "NO_CARD"],
+
+  "choice_field_kinds": ["TYPE", "HAND_CARD", "POSITION", "ENTITY", "TARGET", "TRAIT", "BOOLEAN", "ANIMAL", "PLANT", "SHELL", "CARD", "DECLINE", "USE_DEFAULT", "READY"],
+
+  "choice_kinds": ["NONE", "TYPE", "ENTITY", "TRAIT", "SCALAR", "DECLINE", "USE_DEFAULT", "READY"],
+
+  "decision_kinds": ["NORMAL", "DEFENSE", "INTELLECT", "AMBUSH", "REGENERATION", "TRANSIENT", "TERMINAL"],
+
+  "command_types": [
+    "gameEndTurnRequest",
+    "gameDeployAnimalRequest",
+    "gameDeployTraitRequest",
+    "traitTakeFoodRequest",
+    "traitTakeShellRequest",
+    "traitTakeCoverRequest",
+    "traitActivateRequest",
+    "gamePlantAttackRequest",
+    "plantTraitActivateRequest",
+    "traitAnswerRequest",
+    "traitAmbushActivateRequest",
+    "traitAmbushContinueRequest",
+    "gameDeployRegeneratedAnimalRequest"
+  ],
+
+  "int_dtype": "int64",
+  "bool_dtype": "int8",
+  "mask_dtype": "int8",
+
+  "observation": {
+    "global": {
+      "phase": {"enum": "phase_values"},
+      "turn": {"int": true},
+      "round": {"int": true},
+      "seat": {"int": true},
+      "current_player": {"int": true},
+      "round_player": {"int": true},
+      "food": {"int": true},
+      "deck_count": {"int": true},
+      "active_players": {"int": true},
+      "addons": {"multibinary": "addons"},
+      "half_deck": {"bool": true}
+    },
+    "players": {
+      "sequence": {
+        "seat": {"int": true},
+        "playing": {"bool": true},
+        "ended": {"bool": true},
+        "acted": {"bool": true},
+        "hand_count": {"int": true},
+        "animal_count": {"int": true}
+      }
+    },
+    "hand": {
+      "sequence": {
+        "card_type": {"int": true},
+        "trait1_type": {"int": true},
+        "trait2_type": {"int": true}
+      }
+    },
+    "animals": {
+      "sequence": {
+        "owner": {"int": true},
+        "position": {"int": true},
+        "food": {"int": true},
+        "food_size": {"int": true},
+        "fat_size": {"int": true},
+        "flags": {"multibinary": "animal_flags"},
+        "traits": {"sequence": "trait_row"}
+      }
+    },
+    "plants": {
+      "sequence": {
+        "type": {"int": true},
+        "food": {"int": true},
+        "covers": {"int": true},
+        "cover_slots": {"int": true},
+        "fruit": {"int": true},
+        "traits": {"sequence": "trait_row"}
+      }
+    },
+    "shells": {
+      "sequence": {
+        "type": {"int": true},
+        "value": {"int": true},
+        "slot": {"int": true}
+      }
+    },
+    "context": {
+      "kind": {"enum": "decision_kinds"},
+      "source_kind": {"enum": "entity_kinds"},
+      "source_slot": {"int": true},
+      "target_kind": {"enum": "entity_kinds"},
+      "target_slot": {"int": true},
+      "attack_trait_type": {"int": true},
+      "prefix": {"sequence": "choice_row"}
+    },
+    "choices": {"sequence": "choice_row"},
+    "action_mask": {"sequence": {"int8": true}}
+  },
+
+  "trait_row": {
+    "type": {"int": true},
+    "disabled": {"bool": true},
+    "covers": {"int": true},
+    "link_source": {"int": true},
+    "linked_entity_kind": {"enum": "entity_kinds"},
+    "linked_entity_slot": {"int": true},
+    "linked_trait_slot": {"int": true},
+    "value_kind": {"enum": "value_kinds"},
+    "value_number": {"int": true},
+    "value_entity_kind": {"enum": "entity_kinds"},
+    "value_entity_slot": {"int": true},
+    "value_trait_slot": {"int": true},
+    "source_type": {"enum": "feeding_source_types"},
+    "source_slot": {"int": true},
+    "auto_share": {"int": true},
+    "cooldowns": {"sequence": {"key": {"int": true}, "remaining": {"int": true}}}
+  },
+
+  "choice_row": {
+    "field_kind": {"enum": "choice_field_kinds"},
+    "choice_kind": {"enum": "choice_kinds"},
+    "type_id": {"int": true},
+    "entity_kind": {"enum": "entity_kinds"},
+    "entity_slot": {"int": true},
+    "trait_slot": {"int": true},
+    "scalar": {"int": true}
+  },
+
+  "frame": {
+    "actor": "string|null",
+    "decision_id": "int",
+    "observations": "map<agent, observation>",
+    "rewards": "map<agent, float>",
+    "terminated": "map<agent, bool>",
+    "truncated": "map<agent, bool>",
+    "info": "map<agent, object>",
+    "committed": "bool"
+  },
+
+  "info": {
+    "committed": "bool",
+    "attempt_rejected": "bool",
+    "truncation_reason": "string|null",
+    "outcome": "null|{winner: string|null}"
+  },
+
+  "protocol": {
+    "request": {"id": "int", "op": "string", "payload": "object"},
+    "response_ok": {"id": "int", "ok": true, "result": "object"},
+    "response_error": {"id": "int", "ok": false, "error": {"code": "string", "message": "string"}},
+    "ops": {
+      "hello": {"config": "object"},
+      "reset": {"seed": "int|null", "scenario": "string|null"},
+      "observe": {"agent": "string"},
+      "step": {"decision_id": "int", "choice_index": "int"},
+      "snapshot": {},
+      "restore": {"handle": "int"},
+      "export_replay": {},
+      "close": {}
+    },
+    "hello_result": {
+      "protocol_version": "int",
+      "schema_version": "int",
+      "engine_version": "string",
+      "catalog": "object",
+      "config": "object"
+    },
+    "error_codes": [
+      "NOT_INITIALIZED",
+      "INVALID_CONFIG",
+      "INVALID_SCENARIO",
+      "INVALID_SNAPSHOT",
+      "INVALID_DECISION",
+      "INVALID_CHOICE",
+      "ENGINE_STALLED",
+      "ENGINE_INVARIANT",
+      "ENGINE_NOT_FOUND",
+      "INTERNAL"
+    ]
+  },
+
+  "config": {
+    "numPlayers": 2,
+    "addons": [],
+    "halfDeck": false,
+    "maxCards": null,
+    "randomPlayers": false,
+    "maxDecisions": 20000
+  },
+
+  "scenario": {
+    "format": "yaml",
+    "keys": ["phase", "food", "deck", "plants", "settings", "players"],
+    "player_keys": ["continent"],
+    "entity_syntax": "$<Letter> [TraitName [+]]..."
+  }
+}
