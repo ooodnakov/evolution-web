@@ -414,6 +414,44 @@ players:
       expect(traitTypes).to.include(true);
     });
 
+    it('DEFENSE survives a plant attacker from the plantarium', () => {
+      const game = buildGame(`
+phase: feeding
+plants: PlantCarnivorous $P
+players:
+  - continent: $A
+  - continent: $B run
+`);
+      const plant = game.getPlant('$P');
+      const attackTrait = plant.traits.find(trait => trait.type === 'PlantTraitHiddenCarnivorous');
+      const targetAnimal = game.locateAnimal('$B', 'p1');
+      expect(attackTrait, 'plant has hidden carnivorous trait').to.not.equal(undefined);
+
+      const question = new QuestionRecord({
+        id: 'q_plant_defense'
+        , type: QuestionRecord.DEFENSE
+        , userId: 'p1'
+        , sourcePid: null
+        , sourceAid: plant.id
+        , traitId: attackTrait.id
+        , targetPid: 'p1'
+        , targetAid: targetAnimal.id
+      });
+      const withQuestion = game.set('question', question);
+      const context = makeContext(withQuestion, 'p1', 'DEFENSE', 3, {question});
+      const leaves = collectLeaves(domain, context);
+
+      expect(leaves.length, 'plant attack has a defense domain').to.be.greaterThan(0);
+      const traitTypes = leaves.map(({command}) => {
+        const traitId = command.data.traitId;
+        if (traitId === true) return true;
+        const trait = targetAnimal.traits.get(traitId);
+        return trait ? trait.type : traitId;
+      });
+      expect(traitTypes).to.include('TraitRunning');
+      expect(traitTypes).to.include(true);
+    });
+
     it('INTELLECT offers target traits and a decline', () => {
       const game = buildGame(`
 phase: feeding

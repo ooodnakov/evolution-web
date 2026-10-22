@@ -651,18 +651,33 @@ const buildNormalLeaves = (context) => {
   return leaves;
 };
 
-const defenseLeafAdmissible = (game, defenseAnimal, trait, targetId, attackAnimal, attackTrait) => {
+const defenseLeafAdmissible = (game, defenseAnimal, trait, targetId, attackEntity, attackTrait) => {
   try {
-    if (trait.getErrorOfUse(game, defenseAnimal, attackAnimal, attackTrait)) return false;
-    if (checkIfTraitDisabledByIntellect(attackAnimal, trait)) return false;
+    if (trait.getErrorOfUse(game, defenseAnimal, attackEntity, attackTrait)) return false;
+    if (checkIfTraitDisabledByIntellect(attackEntity, trait)) return false;
     if (targetId === undefined) {
       return true;
     }
-    checkTraitActivation_Target(game, defenseAnimal, trait, targetId, attackAnimal, attackTrait);
+    checkTraitActivation_Target(game, defenseAnimal, trait, targetId, attackEntity, attackTrait);
     return true;
   } catch (error) {
     if (error && error.userLevelError) return false;
     throw error;
+  }
+};
+
+const debugDefense = (context, question, why, extra = {}) => {
+  if (process.env.RL_DEBUG) {
+    console.error('DEFENSE_EMPTY', why, JSON.stringify({
+      playerId: context.playerId,
+      question: question ? {
+        type: question.type, traitId: question.traitId,
+        sourceAid: question.sourceAid, sourcePid: question.sourcePid,
+        targetAid: question.targetAid, targetPid: question.targetPid,
+        userId: question.userId,
+      } : null,
+      ...extra,
+    }));
   }
 };
 
@@ -671,25 +686,40 @@ const buildDefenseLeaves = (context) => {
   const game = context.projection || context.game;
   const question = context.question || (game && game.question);
   if (!question || question.type !== QuestionRecord.DEFENSE) return leaves;
-  if (context.playerId !== question.targetPid) return leaves;
+  if (context.playerId !== question.targetPid) {
+    debugDefense(context, question, 'actor is not target');
+    return leaves;
+  }
 
   const defenseAnimal = game.locateAnimal(question.targetAid, question.targetPid);
-  const attackAnimal = game.locateAnimal(question.sourceAid, question.sourcePid);
+  const attackEntity = game.getEntity(question.sourceAid);
   const attackTrait = game.locateTrait(question.traitId, question.sourceAid, question.sourcePid);
-  if (!defenseAnimal || !attackAnimal || !attackTrait) return leaves;
+  if (!defenseAnimal || !attackEntity || !attackTrait) {
+    debugDefense(context, question, 'question entities missing on projection', {
+      defenseAnimal: !!defenseAnimal,
+      attackEntity: !!attackEntity,
+      attackTrait: !!attackTrait,
+      authoritativeTrait: !!(context.game
+        && context.game.locateTrait(question.traitId, question.sourceAid, question.sourcePid)),
+    });
+    return leaves;
+  }
 
   const slots = context.slots;
   const defenseEntry = slots.animalById.get(defenseAnimal.id);
-  if (!defenseEntry) return leaves;
+  if (!defenseEntry) {
+    debugDefense(context, question, 'defense animal has no slot');
+    return leaves;
+  }
 
   const skipOptionalDefence = !!(game.hunts && game.hunts.size > 0
     && game.hunts.first().flags.has(HUNT_FLAG.OPTIONAL_DEFENCE_OFF));
-  const defenses = getActiveDefenses(game, attackAnimal, attackTrait, defenseAnimal, skipOptionalDefence);
+  const defenses = getActiveDefenses(game, attackEntity, attackTrait, defenseAnimal, skipOptionalDefence);
 
   defenses.forEach((trait) => {
     const traitData = trait.getDataModel();
     if (!traitData || !traitData.defense) return;
-    if (checkIfTraitDisabledByIntellect(attackAnimal, trait)) return;
+    if (checkIfTraitDisabledByIntellect(attackEntity, trait)) return;
 
     let targetOptions = [];
     switch (traitData.targetType) {
@@ -698,7 +728,7 @@ const buildDefenseLeaves = (context) => {
         break;
       case TRAIT_TARGET_TYPE.ANIMAL: {
         const list = traitData.getTargets
-          ? traitData.getTargets(game, defenseAnimal, trait, attackAnimal, attackTrait).toList()
+          ? traitData.getTargets(game, defenseAnimal, trait, attackEntity, attackTrait).toList()
           : slots.animals.map(entry => entry.animal);
         targetOptions = list.map(target => ({
           targetId: target.id
@@ -710,7 +740,7 @@ const buildDefenseLeaves = (context) => {
       }
       case TRAIT_TARGET_TYPE.TRAIT: {
         const list = traitData.getTargets
-          ? traitData.getTargets(game, defenseAnimal, trait, attackAnimal, attackTrait).toList()
+          ? traitData.getTargets(game, defenseAnimal, trait, attackEntity, attackTrait).toList()
           : defenseAnimal.traits.toList();
         targetOptions = list.map(targetTrait => {
           const slot = defenseAnimal.traits.toList().findIndex(item => item.id === targetTrait.id);
@@ -733,7 +763,7 @@ const buildDefenseLeaves = (context) => {
 
     const traitSlot = defenseEntry.animal.traits.toList().findIndex(item => item.id === trait.id);
     targetOptions.forEach(({targetId, choice: targetChoice}) => {
-      if (!defenseLeafAdmissible(game, defenseAnimal, trait, targetId, attackAnimal, attackTrait)) return;
+      if (!defenseLeafAdmissible(game, defenseAnimal, trait, targetId, attackEntity, attackTrait)) return;
       leaves.push({
         choices: [
           traitChoice('TRAIT', ENTITY_KIND.ANIMAL, defenseEntry.slot, trait, traitSlot, context.resolveTypeId)
