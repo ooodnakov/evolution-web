@@ -27,7 +27,15 @@ export const PlantTraitHiddenCarnivorous = Object.assign({}, TraitCarnivorous, {
     , [TRAIT_COOLDOWN_LINK.EATING, TRAIT_COOLDOWN_PLACE.PLAYER, TRAIT_COOLDOWN_DURATION.ROUND]
   ])
   , _getErrorOfUse: () => false
-  , action: (game, playerId, attackPlant, attackTrait, targetAnimal, ...flags) => (dispatch, getState) => {
+  , action: (game, ...args) => (dispatch, getState) => {
+    // Two call paths reach this action: `server$plantTraitActivate` passes
+    // (playerId, plant, trait, target, ...flags), while the generic animal
+    // trait path (Mimicry, Intellect counterattack) passes
+    // (plant, trait, target, ...flags) without the acting player id.
+    const offset = typeof args[0] === 'string' ? 1 : 0;
+    const attackPlant = args[offset];
+    const targetAnimal = args[offset + 2];
+    const flags = args.slice(offset + 3);
     dispatch(server$huntStart_Plant(game.id, null, attackPlant, targetAnimal, ...flags));
     return false;
   }

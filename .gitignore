@@ -8,3 +8,5 @@ stats.json
 graphify-out/
 
 **/__pycache__/**
+
+rl/runs/
