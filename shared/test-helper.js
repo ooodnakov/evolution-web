@@ -29,9 +29,11 @@ global.document = dom.window.document;
 //     global[property] = document.defaultView[property];
 //   }
 // });
-global.navigator = {
-  userAgent: 'node.js'
-};
+Object.defineProperty(global, 'navigator', {
+  value: {userAgent: 'node.js'}
+  , writable: true
+  , configurable: true
+});
 
 global.localStorage = require('./test/setup-local-storage-mock').default();
 global.sessionStorage = require('./test/setup-local-storage-mock').default();
@@ -81,6 +83,7 @@ import {
 } from '../client/configuration/socket';
 import {socketStore as socketServerStore, socketMiddleware as socketServerMiddleware} from '../server/socket';
 import {errorMiddleware as serverErrorMiddleware} from '../server/middleware/error';
+import {gameLifecycleMiddleware} from '../server/middleware/gameLifecycle';
 
 const mixinActions = (store => {
   store.actions = [];
@@ -102,6 +105,7 @@ global.mockServerStore = function (initialServerState) {
     , applyMiddleware(
       serverErrorMiddleware()
       , thunk
+      , gameLifecycleMiddleware
       , reduxQuestion()
       , reduxTimeoutMiddleware(timeouts, true)
       , store => next => action => {

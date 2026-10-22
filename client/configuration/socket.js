@@ -2,6 +2,9 @@ import logger from '~/shared/utils/logger';
 import io from 'socket.io-client';
 import {serverToClient, socketDisconnect, loginUserTokenRequest, loginUserFailure} from '../../shared/actions/actions'
 import LocationService from '../services/LocationService';
+import {gameServerToClientOverrides} from './game-handlers';
+
+const serverToClientHandlers = Object.assign({}, serverToClient, gameServerToClientOverrides);
 
 export const makeSocketClient = (url, options) => io(url, options);
 
@@ -46,11 +49,11 @@ export const socketStore = (socket, store) => {
   });
   socket.on('action', (action) => {
     logger.silly('Client Recv:', action.type);
-    if (serverToClient[action.type]) {
+    if (serverToClientHandlers[action.type]) {
       const currentUserId = store.getState().getIn(['user', 'id']);
       //console.log('user', user);
       //action.user = user;
-      store.dispatch(serverToClient[action.type](action.data, currentUserId));
+      store.dispatch(serverToClientHandlers[action.type](action.data, currentUserId));
     } else {
       logger.error('serverToClient action doesnt exist: ' + action.type);
     }

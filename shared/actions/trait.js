@@ -1,4 +1,5 @@
 import logger from '~/shared/utils/logger';
+import {gameNow} from '../utils/gameRuntime';
 
 import ActionCheckError from '../models/ActionCheckError';
 
@@ -26,8 +27,9 @@ import {
   , server$addTurnTimeout
   , server$gameCancelTurnTimeout
   , server$gameStartPhase
-  , server$playerActed, server$gamePlantUpdateFood
-} from './actions';
+  , server$playerActed
+} from './game';
+import {server$gamePlantUpdateFood, server$takeCardFromRandomPlayer} from './game.plantarium';
 import ERRORS from './errors'
 
 import {selectRoom, selectGame, selectUsersInGame} from '../selectors';
@@ -65,7 +67,6 @@ import {
   , server$huntStart_Plant
 } from "../models/game/evolution/traitsData/hunt";
 import {logTarget} from "./log.util";
-import {server$takeCardFromRandomPlayer} from "./game.plantarium";
 import {server$animalDeath} from "./game";
 
 /**
@@ -945,7 +946,7 @@ export const server$questionResumeTimeout = (gameId, question) => (dispatch, get
 
   const timeTraitResponse = !player.timedOut ? game.settings.timeTraitResponse : SETTINGS_TIMED_OUT_TURN_TIME;
 
-  question = question.set('time', Date.now());
+  question = question.set('time', gameNow());
 
   logger.verbose('server$traitQuestion:', question.type, question.sourceAid, '>', question.targetAid);
 

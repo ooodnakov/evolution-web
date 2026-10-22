@@ -28,10 +28,16 @@ const formatter = function (options) {
   return config.colorize(options.level, header) + body;
 };
 
+// winston@2 Console writes to process.stdout unless the level is listed in
+// `stderrLevels` (default: error+debug). Headless RL runs must keep stdout
+// clean for the JSONL protocol, so LOG_STREAM=stderr routes every level there.
+const ALL_LEVELS = ['error', 'warn', 'info', 'verbose', 'debug', 'silly'];
+
 export const consoleTransport = {
   level: process.env.LOG_LEVEL || 'verbose'
   , handleExceptions: false
   , json: false
   , colorize: true
   , formatter
+  , stderrLevels: process.env.LOG_STREAM === 'stderr' ? ALL_LEVELS : undefined
 };

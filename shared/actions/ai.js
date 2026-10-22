@@ -7,7 +7,6 @@ import {
   , TRAIT_COOLDOWN_PLACE
   , TRAIT_COOLDOWN_DURATION
 } from '../models/game/evolution/constants';
-import {startCooldown} from './actions';
 import {passesChecks, failsChecks, checkGamePhase, checkPlayerCanAct} from './checks';
 import {
   getErrorOfAnimalEatingFromGame,
@@ -16,7 +15,7 @@ import {
   getErrorOfAnimalEatingFromPlant,
   getErrorOfAnimalTakingCover, checkTraitActivation_Plant, getErrorOfEntityTraitActivation
 } from './trait.checks';
-import {server$autoFoodSharing, server$takeFoodRequest, server$traitTakeCover} from "./trait";
+import {server$autoFoodSharing, server$takeFoodRequest, server$traitTakeCover, startCooldown} from "./trait";
 
 const logOptions = !!process.env.LOG_OPTIONS;
 const logOptionsAll = !!process.env.LOG_OPTIONS_ALL;

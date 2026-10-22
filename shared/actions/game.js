@@ -1,4 +1,4 @@
-import logger, {loggerOnline} from '~/shared/utils/logger';
+import logger from '~/shared/utils/logger';
 import {List} from 'immutable';
 
 import ActionCheckError from '~/shared/models/ActionCheckError';
@@ -19,19 +19,14 @@ import {
   , ANIMAL_DEATH_REASON
 } from '../models/game/evolution/constants';
 
-import {db$gameEnd} from '../../server/actions/db';
-
 import {server$game, to$, toUser$Client} from './generic';
 import {doesPlayerHasOptions, doesOptionExist, getOptions, searchPlayerOptions} from './ai';
 import {
   server$questionPauseTimeout
   , server$questionResumeTimeout
   , server$autoFoodSharing
-  , server$roomSelfDestructStart
-  , server$activateViviparous, server$activateMutation, server$traitAnimalAttachTrait, server$gamePestPlants
-} from './actions';
-import {appPlaySound} from '../../client/actions/app';
-import {redirectTo} from '../utils/history';
+  , server$activateViviparous, server$traitAnimalAttachTrait
+} from './trait';
 import {selectGame, selectUsersInGame} from '../selectors';
 
 import {
@@ -53,11 +48,12 @@ import {
 
 import {addTimeout, cancelTimeout, checkTimeout} from '../utils/reduxTimeout';
 import {parseFromRoom} from "../models/game/GameModel.parse";
-import {server$gameDeployPlant, server$gameSpawnPlants} from "./game.plantarium";
+import {server$gameDeployPlant, server$gameSpawnPlants, server$gamePestPlants} from "./game.plantarium";
 import PlantModel from "../models/game/evolution/plantarium/PlantModel";
 import PlantVisitor from "../models/game/evolution/plantarium/PlantsVisitor";
 import ParasiteVisitor from "../models/game/evolution/plantarium/ParasiteVisitor";
 import {getIntRandom} from "../utils/randomGenerator";
+import {gameNow} from "../utils/gameRuntime";
 import traitDataModel from "../models/game/evolution/TraitDataModel";
 
 // region Game
@@ -73,7 +69,7 @@ const gameStartPhase = (gameId, phase, timestamp, data) => ({
 
 export const server$gameStartPhase = (gameId, phase, data) => {
   logger.verbose('server$gameStartPhase:', phase, data);
-  return server$game(gameId, gameStartPhase(gameId, phase, Date.now(), data));
+  return server$game(gameId, gameStartPhase(gameId, phase, gameNow(), data));
 };
 // endregion
 
@@ -481,7 +477,7 @@ export const server$addTurnTimeout = (gameId, userId, turnTime) => (dispatch, ge
   if (!turnTime) {
     turnTime = !game.getPlayer(userId).timedOut ? game.settings.timeTurn : SETTINGS_TIMED_OUT_TURN_TIME;
   }
-  dispatch(server$game(gameId, gameAddTurnTimeout(gameId, Date.now(), turnTime)));
+  dispatch(server$game(gameId, gameAddTurnTimeout(gameId, gameNow(), turnTime)));
   dispatch(addTimeout(turnTime, makeTurnTimeoutId(gameId, userId), (dispatch, getState) => {
     logger.info(`Turn Timeout:`, `${gameId}: ${userId}`);
     dispatch(server$gameSetUserTimedOut(gameId, userId, true));
@@ -800,12 +796,7 @@ export const server$gameEnd = (gameId, finished) => (dispatch, getState) => {
   dispatch(gameEnd(gameId, game));
   dispatch(client$gameEnd(gameId));
 
-  dispatch(server$roomSelfDestructStart(game.roomId, selectGame(getState, gameId).winnerId));
-
-  const gameStats = selectGame(getState, gameId).toDatabase(getState, finished);
-  db$gameEnd(gameStats);
-
-  loggerOnline.info(`Game ${finished ? 'finished' : 'exited'} ${game.players.map(p => getState().getIn(['users', p.id, 'login'])).join(', ')}`);
+  dispatch({type: 'gameFinished', data: {gameId, finished}});
 };
 // endregion
 
@@ -969,11 +960,9 @@ export const gameClientToServer = {
 export const gameServerToClient = {
   gameInit: ({game, userId}, currentUserId) => (dispatch) => {
     dispatch(gameInit(GameModelClient.fromServer(game, userId)));
-    redirectTo('/room');
   }
   , gameCreateSuccess: (({game}, currentUserId) => (dispatch) => {
     dispatch(gameCreateSuccess(GameModelClient.fromServer(game, currentUserId)));
-    redirectTo('/room');
   })
   , gameCreateNotify: ({roomId, gameId}) => gameCreateNotify(roomId, gameId)
   , gameStart: ({gameId}) => gameStart(gameId)
@@ -996,9 +985,6 @@ export const gameServerToClient = {
     gameAddTurnTimeout(gameId, turnStartTime, turnDuration)
   , gameNextRound: ({gameId}) => gameNextRound(gameId)
   , gameNextPlayer: ({gameId, playerId}, userId) => (dispatch, getState) => {
-    const game = getState().get('game');
-    const previousPlayerId = game.status.currentPlayer;
-    if (previousPlayerId !== userId && playerId === userId) dispatch(appPlaySound('NOTIFICATION'));
     dispatch(gameNextPlayer(gameId, playerId))
   }
   , playerActed: ({gameId, userId}) => playerActed(gameId, userId)

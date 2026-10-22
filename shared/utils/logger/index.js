@@ -10,7 +10,11 @@ const colors = {
   silly: 'gray'
 };
 
-if (!process.env.TEST) require('winston-google-spreadsheet').GoogleSpreadSheet;
+// Spreadsheet logging is optional and never part of headless runs: without a
+// target file the transport is not loaded at all.
+const useGoogleLogs = !!process.env.GOOGLE_LOGS_FILE && !process.env.TEST;
+
+if (useGoogleLogs) require('winston-google-spreadsheet').GoogleSpreadSheet;
 const SSTransport = (sheetIdx = 1, level = 'info') => new (winston.transports.GoogleSpreadsheet)({
   'fileId': process.env.GOOGLE_LOGS_FILE
   , level
@@ -29,21 +33,21 @@ export default new winston.Logger({
   colors
   , transports: [
     new winston.transports.Console(consoleTransport)
-    , (process.env.GOOGLE_LOGS_FILE ? SSTransport(3, 'error') : NullTransport())
+    , (useGoogleLogs ? SSTransport(3, 'error') : NullTransport())
   ],
   exitOnError: false
 });
 
 export const loggerOnline = new winston.Logger({
   transports: [
-    (process.env.GOOGLE_LOGS_FILE ? SSTransport() : NullTransport())
+    (useGoogleLogs ? SSTransport() : NullTransport())
   ],
   exitOnError: false
 });
 
 export const loggerChat = new winston.Logger({
   transports: [
-    (process.env.GOOGLE_LOGS_FILE && process.env.GOOGLE_LOG_CHAT ? SSTransport(2) : NullTransport())
+    (useGoogleLogs && process.env.GOOGLE_LOG_CHAT ? SSTransport(2) : NullTransport())
   ],
   exitOnError: false
 });
