@@ -56,7 +56,7 @@ export const server$gameSpawnPlants = (gameId, count) => (dispatch, getState) =>
   let deck = game.deckPlants;
   if (count > deck.size) {
     // No shuffling because it's a feature creep
-    deck = deck.concat(game.deckPlantsDiscard);
+    deck = deck.concat(game.deckPlantsDiscard || []);
   }
   const plants = deck.take(count).map(PlantModel.new);
   dispatch(server$game(gameId, gameSpawnPlants(gameId, plants)));

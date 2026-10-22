@@ -559,12 +559,17 @@ export const traitParalyze = (game, {animalId}) => {
       }))
       .recalculateFood()
     )
-    .update(game => linkedTraits.reduce((game, trait) =>
-        game.updateIn(['players', trait.ownerId, 'continent', trait.hostAnimalId], animal => animal
-          .setIn(['traits', trait.id, 'disabled'], true)
-          .recalculateFood()
-        )
-      , game));
+    .update(game => linkedTraits.filter(Boolean).reduce((game, trait) => {
+      if (game.getPlant(trait.hostAnimalId)) {
+        return game.updateIn(['plants', trait.hostAnimalId], plant => plant
+          .setIn(['traits', trait.id, 'disabled'], true));
+      }
+      if (!trait.ownerId || !trait.hostAnimalId) return game;
+      return game.updateIn(['players', trait.ownerId, 'continent', trait.hostAnimalId], animal => animal
+        .setIn(['traits', trait.id, 'disabled'], true)
+        .recalculateFood()
+      );
+    }, game));
 };
 
 export const traitConvertFat = (game, {sourceAid, traitId}) => {
@@ -642,8 +647,14 @@ export const traitTakeCover = (game, {animalId, plantId}) => {
     .update(addToGameLog(['traitTakeCover', logAnimal(animal), logPlant(game.getPlant(plantId))]));
 };
 
-export const traitAmbushActivate = (game, {animalId, on}) => game
-  .setIn(['ambush', 'ambushers', animalId], on);
+export const traitAmbushActivate = (game, {animalId, on}) => (
+  game.ambush
+  && game.ambush.ambushers
+  && animalId != null
+  && game.ambush.ambushers.has(animalId)
+    ? game.setIn(['ambush', 'ambushers', animalId], on)
+    : game
+);
 export const gameAmbushPushTarget = (game, {feedingRecord}) => game
   .updateIn(['ambush', 'targets'], targets => targets.push(feedingRecord));
 export const gameAmbushShiftTarget = (game, {}) => game
@@ -709,7 +720,7 @@ export const gameSpawnPlants = (game, {plants}) => {
 
       if (plants.size > deck.size) {
         // No shuffling because it's a feature creep
-        deck = deck.concat(game.deckPlantsDiscard);
+        deck = deck.concat(game.deckPlantsDiscard || []);
       }
       return game
         .set('deckPlants', deck.skip(plants.size))

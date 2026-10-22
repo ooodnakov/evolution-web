@@ -524,6 +524,12 @@ const gameAmbushAttackEnd = (gameId) => ({
 
 export const server$gameAmbushAttackStart = (gameId) => (dispatch, getState) => {
   const game = selectGame(getState, gameId);
+  if (!game.ambush) {
+    // A queued ambush hunt can finish after the ambush record was already
+    // consumed; there is nothing left to attack.
+    logger.debug(`server$gameAmbushAttackStart: no ambush record`);
+    return;
+  }
   logger.debug(`server$gameAmbushAttackStart: ${game.ambush.targets.toArray().map(({targetAid}) => `${targetAid}`)}`);
   dispatch(server$game(gameId, gameAmbushAttackStart(gameId)));
 
@@ -538,6 +544,7 @@ export const server$gameAmbushAttackStart = (gameId) => (dispatch, getState) => 
 
 export const server$traitAmbushPerform = (gameId, attackAnimalId) => (dispatch, getState) => {
   const game = selectGame(getState, gameId);
+  if (!game.ambush) return;
   const ambushTarget = game.ambush.targets.first();
   const targetAnimal = game.locateAnimal(ambushTarget.targetAid, ambushTarget.targetPid);
   const attackAnimal = game.locateAnimal(attackAnimalId);
@@ -562,6 +569,7 @@ export const server$traitAmbushPerform = (gameId, attackAnimalId) => (dispatch, 
 export const server$gameAmbushAttackEnd = (gameId) => (dispatch, getState) => {
   logger.verbose(`server$gameAmbushAttackEnd`);
   let game = selectGame(getState, gameId);
+  if (!game.ambush || !game.ambush.targets.first()) return;
   const {turnRemainingTime} = game.ambush;
   const {targetAid, targetPid, amount, sourceType, sourceId, auto} = game.ambush.targets.first();
   const targetAnimal = game.locateAnimal(targetAid, targetPid);
