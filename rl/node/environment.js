@@ -599,9 +599,11 @@ export class EvolutionEnvironment {
     if (!animal) return 'declined';
     const trait = animal.traits.get(traitId);
     if (!trait) return 'declined';
-    if (trait.value === value) return 'applied';
+    // Anglerfish's action flips the value, so compare as booleans: undefined
+    // and false both mean "off".
+    if (Boolean(trait.value) === Boolean(value)) return 'applied';
 
-    const before = trait.value;
+    const before = Boolean(trait.value);
     let threw = null;
     try {
       this.runtime.run(() => this.store.dispatch(
@@ -619,7 +621,7 @@ export class EvolutionEnvironment {
     const updatedGame = this.game();
     const updatedAnimal = updatedGame.locateAnimal(animalId);
     const updatedTrait = updatedAnimal ? updatedAnimal.traits.get(traitId) : null;
-    const applied = !!updatedTrait && updatedTrait.value !== before;
+    const applied = !!updatedTrait && Boolean(updatedTrait.value) !== before;
     if (applied) return 'applied';
     if (updatedGame.question || updatedGame.status.phase === PHASE.AMBUSH) return 'pending';
     if (threw) return 'declined';

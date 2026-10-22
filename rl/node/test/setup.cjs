@@ -7,5 +7,8 @@
  */
 const chai = require('chai');
 
+// The shared logger builds its transport level at import time.
+process.env.LOG_LEVEL = process.env.LOG_LEVEL || 'error';
+
 global.chai = chai;
 global.expect = chai.expect;
