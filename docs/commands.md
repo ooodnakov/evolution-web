@@ -1,6 +1,34 @@
 # Reusable commands
 
 Copy-paste recipes for this repository. Run everything from the repo root.
+`package.json` scripts stay the single source of truth; the table below is the
+reference for what each one does.
+
+## npm scripts
+
+| Script | What it runs |
+|---|---|
+| `npm run start` | `nodemon --exec babel-node server/index.js` |
+| `npm run build` | `clean` + `server:build` + `client:build` |
+| `npm run server:build` | webpack server bundle |
+| `npm run client:build` | webpack client bundle with progress |
+| `npm run server:start` | run the built server from `dist/` |
+| `npm run clean` / `server:clean` / `client:clean` | remove `dist/` / `dist/server` / `dist/client` |
+| `npm run test:shared[:once]` | gulp shared specs (watch / once) |
+| `npm run test:client[:once]` | gulp client specs |
+| `npm run test:server[:once]` | gulp server specs |
+| `npm run test:all[:once]` | gulp shared + client + server |
+| `npm run rl:smoke` | `node rl/node/worker.cjs --smoke` |
+| `npm run rl:test` | mocha over `rl/node/**/*.spec.js` with `@babel/register` and `rl/node/test/setup.cjs` |
+| `npm run heroku-postbuild` | alias for `build` on deploy |
+
+Notes:
+
+- `gulp` test targets can swallow failures; use the direct mocha command below
+  when the exit code matters.
+- `rl:test` deliberately avoids `globals.js`, `shared/test-helper.js` and JWT,
+  so a regression in the headless boundary fails the test.
+- Python has no npm wrapper: use `uv run --locked ...` (see below).
 
 ## Setup
 
