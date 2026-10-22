@@ -1,24 +1,16 @@
 import React, {Component} from 'react';
 import {connect} from 'react-redux';
-import {Map, List, fromJS} from 'immutable';
 
 import {roomSetSeedRequest, roomStartVotingRequest} from '../../../shared/actions/actions';
 
-const defaultGameSeed = `deck: 12 carnivorous, 6 sharp
-phase: feeding
-food: 2
-players:
-  - hand: 1 sharp, 1 camo
-    continent: carn sharp, carn camo
-  - hand: 1 sharp, 1 camo
-    continent: carn sharp, carn camo
-`;
+import SeedEditor from '../AdminControlGroupSections/SeedEditor/SeedEditor.jsx';
+import {defaultSeedString} from '../AdminControlGroupSections/SeedEditor/seedUtils';
 
 export class RoomSection extends Component {
   constructor(props) {
     super(props);
     this.state = {
-      gameSeed: window.localStorage.getItem('gameSeed') || defaultGameSeed
+      gameSeed: window.localStorage.getItem('gameSeed') || defaultSeedString
     }
   }
 
@@ -33,13 +25,11 @@ export class RoomSection extends Component {
       {this.props.gameCanStart
         ? <h6 className="pointer" onClick={this.props.$start(this.props.roomId, this.state.gameSeed)}>Start Game ►</h6>
         : null}
-      <div>
-        <textarea
-          rows={8} cols={40}
-          value={this.state.gameSeed}
-          style={{overflow: 'hidden'}}
-          onChange={(e) => this.setGameSeed(e.target.value)}/>
-      </div>
+      <SeedEditor
+        seed={this.state.gameSeed}
+        onChange={(value) => this.setGameSeed(value)}
+        roomPlayerCount={this.props.roomPlayersCount}
+      />
     </div>
   }
 }
@@ -50,10 +40,12 @@ export const RoomSectionView = connect(
     const roomId = state.get('room');
     const room = state.getIn(['rooms', roomId]);
     const gameCanStart = room ? room.checkCanStart(userId) : false;
+    const roomPlayersCount = room ? room.users.size : 0;
     return {
       roomId
       , userId
       , gameCanStart
+      , roomPlayersCount
     }
   }
   , (dispatch) => ({
