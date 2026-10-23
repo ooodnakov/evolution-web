@@ -1,9 +1,14 @@
-"""JSONL transport to the headless Evolution engine (``rl/node/worker.cjs``).
+"""JSONL transport to the headless Evolution engine.
 
-The Node worker owns the authoritative game. This module is deliberately
-dumb: one long-lived child process per environment, one request in flight at
-a time, ids must match, and protocol corruption is fatal. It never retries or
-replays an episode on its own.
+The engine owns the authoritative game. This module is deliberately dumb: one
+long-lived child process per environment, one request in flight at a time, ids
+must match, and protocol corruption is fatal. It never retries or replays an
+episode on its own.
+
+The child is the compiled worker ``dist/rl/node/worker.cjs`` (written by
+``npm run rl:build``) running under Bun. There is no source-tree launcher and
+no runtime Babel hook, so a missing build or a missing ``bun`` is reported
+instead of being papered over.
 """
 
 from __future__ import annotations
@@ -22,11 +27,16 @@ __all__ = [
     "EngineProcess",
     "EngineProcessError",
     "find_repo_root",
+    "DEFAULT_RUNTIME_EXECUTABLE",
     "LAUNCHER_RELPATH",
     "SCHEMA_RELPATH",
 ]
 
-LAUNCHER_RELPATH = Path("rl") / "node" / "worker.cjs"
+DEFAULT_RUNTIME_EXECUTABLE = "bun"
+BUILD_COMMAND = "npm run rl:build"
+# Compiled artifact written by ``npm run rl:build``; the worker resolves
+# rl/schema.json relative to its parent directory in both trees.
+LAUNCHER_RELPATH = Path("dist") / "rl" / "node" / "worker.cjs"
 SCHEMA_RELPATH = Path("rl") / "schema.json"
 
 _EOF = object()
@@ -46,7 +56,7 @@ def _has_engine(root: Path) -> bool:
 
 
 def find_repo_root(start: str | os.PathLike[str] | None = None) -> Path | None:
-    """Locate the repository checkout that owns ``rl/node/worker.cjs``."""
+    """Locate the repository checkout that owns ``dist/rl/node/worker.cjs``."""
     if start is not None:
         candidate = Path(start).expanduser().resolve()
         return candidate if _has_engine(candidate) else None
@@ -68,7 +78,7 @@ class EngineProcess:
 
     def __init__(
         self,
-        node_executable: str = "node",
+        runtime_executable: str = DEFAULT_RUNTIME_EXECUTABLE,
         repo_root: str | os.PathLike[str] | None = None,
         config: dict[str, Any] | None = None,
         *,
@@ -77,7 +87,7 @@ class EngineProcess:
         forward_stderr: bool = True,
         stderr_limit: int = 2000,
     ) -> None:
-        self.node_executable = node_executable
+        self.runtime_executable = runtime_executable
         self.timeout = float(timeout)
         self.forward_stderr = bool(forward_stderr)
         self.stderr_lines: deque[str] = deque(maxlen=max(1, int(stderr_limit)))
@@ -95,15 +105,19 @@ class EngineProcess:
             root = find_repo_root()
             if root is None:
                 raise EngineProcessError(
-                    "ENGINE_NOT_FOUND", "rl/node/worker.cjs not found in any parent directory"
+                    "ENGINE_NOT_FOUND",
+                    "engine build not found: no parent directory contains "
+                    f"{LAUNCHER_RELPATH}; run `{BUILD_COMMAND}` at the repository root",
                 )
 
         if argv is None:
             if not (root / LAUNCHER_RELPATH).is_file():
                 raise EngineProcessError(
-                    "ENGINE_NOT_FOUND", f"missing launcher: {root / LAUNCHER_RELPATH}"
+                    "ENGINE_NOT_FOUND",
+                    f"missing engine build: {root / LAUNCHER_RELPATH}; "
+                    f"run `{BUILD_COMMAND}` in {root}",
                 )
-            command = [node_executable, str(LAUNCHER_RELPATH)]
+            command = [runtime_executable, str(LAUNCHER_RELPATH)]
         else:
             command = [str(part) for part in argv]
             if not command:
@@ -127,6 +141,13 @@ class EngineProcess:
                 bufsize=1,
                 shell=False,
             )
+        except FileNotFoundError as exc:
+            raise EngineProcessError(
+                "ENGINE_RUNTIME_NOT_FOUND",
+                f"cannot start engine runtime {runtime_executable!r}: {exc}. "
+                "Install Bun 1.4.4, run `npm run rl:build`, or pass a different "
+                "runtime_executable.",
+            ) from exc
         except OSError as exc:
             raise EngineProcessError(
                 "ENGINE_NOT_FOUND", f"cannot start engine process: {exc}"

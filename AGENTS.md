@@ -6,7 +6,7 @@ Evolution board game web app plus a headless reinforcement-learning environment 
 
 - **Web game**: React/Redux client, Express + Socket.IO server, MongoDB persistence.
 - **Rules engine**: shared JavaScript game models and action handlers, identical for browser, server and RL.
-- **RL stack**: Node worker process speaking JSONL to a Python PettingZoo AEC environment, with self-play rollouts, baseline policies and a training smoke test.
+- **RL stack**: compiled Bun worker process speaking JSONL to a Python PettingZoo AEC environment, with self-play rollouts, baseline policies and a training smoke test.
 
 Rules must never be reimplemented outside `shared/`. The RL layer consumes the same handlers, reducers and models as the web app.
 
@@ -25,7 +25,7 @@ Game-end side effects (room self-destruct, `toDatabase`, logging) live in `serve
 
 ### RL data flow
 
-1. Python `bridge.py` starts one `node rl/node/worker.cjs` per environment; JSONL ops: `hello/reset/observe/step/snapshot/restore/export_replay/close`.
+1. Python `bridge.py` starts one compiled Bun worker (`dist/rl/node/worker.cjs`, written by `npm run rl:build`) per environment; JSONL ops: `hello/reset/observe/step/snapshot/restore/export_replay/close`.
 2. `rl/node/environment.js` owns an isolated store (games reducer + minimal episode rooms), a logical scheduler and an episode runtime.
 3. Decisions are **prefix steps**: one integer choice over the current `choices`; a compound action spans several steps. `Frame` carries `actor`, `decisionId`, `observations`, `rewards`, `terminated`, `truncated`, `info`, `committed`.
 4. Observations are a strict whitelist from `rl/schema.json`; action legality is enumerated on the player projection (`game.toOthers(playerId)`), never on full state.
@@ -41,6 +41,7 @@ Game-end side effects (room self-destruct, `toDatabase`, logging) live in `serve
 | `shared/selectors/` | Redux selectors (`selectGame`, `selectUsersInGame`, ...). |
 | `client/`, `server/` | Web UI, socket configuration, Express routes, reducers, middleware. |
 | `rl/node/` | Headless runtime: environment, decisions, actions, observation, catalog, scheduler, store, worker. |
+| `rl/build.cjs` | AOT Babel build of `shared/`, `server/` and `rl/node/` into the gitignored `dist/rl`. |
 | `rl/python/evolution_rl/` | AEC env, JSONL bridge, Gymnasium spaces, baselines, rollout, benchmark, trainer. |
 | `rl/python/tests/`, `rl/node/test/` | RL tests. |
 | `docs/` | Approved plan, implementation notes, archived research reports. |
@@ -55,8 +56,9 @@ npm ci --ignore-scripts          # install JS deps from package-lock.json
 npm run build                    # webpack server + client bundles
 npm run start                    # nodemon + babel-node server
 
-npm run rl:test                  # mocha RL specs (no globals.js, no JWT)
-npm run rl:smoke                 # worker smoke, natural terminal required
+npm run rl:build                 # compile the RL worker into dist/rl (required before Bun runs)
+npm run rl:test                  # rl:build + mocha RL specs (no globals.js, no JWT)
+npm run rl:smoke                 # rl:build + compiled Bun worker smoke, natural terminal required
 
 uv sync --locked --extra train   # Python 3.11 environment + CPU torch
 uv run --locked pytest rl/python/tests -q
@@ -92,18 +94,18 @@ TEST=true NODE_ENV=test JWT_SECRET=secret ./node_modules/.bin/mocha \
 
 ## Important Files
 
-- Entry points: `server/index.js`, `client/index.js` (via webpack), `rl/node/worker.cjs`.
+- Entry points: `server/index.js`, `client/index.js` (via webpack), `dist/rl/node/worker.cjs` (compiled from `rl/node/worker.cjs` by `rl/build.cjs`).
 - Store setup: `server/configureStore.js`, `client/configuration/configureStore.js`, `rl/node/store.js`.
 - Rules core: `shared/actions/game.js`, `shared/actions/trait.js`, `shared/actions/game.plantarium.js`, `shared/models/game/GameModel.js`.
 - Reducers: `server/reducers/games-rdx-server.js`, `server/reducers/rooms-rdx-server.js`.
 - Validation/checks: `shared/actions/checks.js`, `shared/actions/trait.checks.js`, `shared/actions/rooms.checks.js`, `shared/actions/game-validation.js`.
 - Contracts: `rl/schema.json`, `rl/python/evolution_rl/spaces.py`.
-- Build: `package.json`, `.babelrc`, `webpack.client.babel.js`, `webpack.server.babel.js`, `gulpfile.babel.js`, `pyproject.toml`, `uv.lock`.
+- Build: `package.json`, `.babelrc`, `rl/build.cjs`, `webpack.client.babel.js`, `webpack.server.babel.js`, `gulpfile.babel.js`, `pyproject.toml`, `uv.lock`.
 
 ## Runtime/Tooling Preferences
 
 - **Web runtime**: Node 16 (`.nvmrc`, `engines`). Do not migrate web Node/npm tooling for RL work.
-- **RL runtime**: Node 24 for the headless engine; Python 3.11 managed by `uv` (`uv sync --locked`, `uv run --locked`). No pip/requirements.txt/manual venv.
+- **RL runtime**: Bun 1.4.4 executes the compiled `dist/rl/node/worker.cjs`; Node 24 only runs the Babel build and mocha specs, and there is no runtime Babel. Rebuild (`npm run rl:build`) after changing `shared/`, `server/` or `rl/node/`. Python 3.11 managed by `uv` (`uv sync --locked`, `uv run --locked`). No pip/requirements.txt/manual venv.
 - **Package manager**: `npm` with the committed `package-lock.json`; do not regenerate it for RL changes.
 - **Python deps**: `numpy`, `gymnasium`, `pettingzoo`; `torch` is an opt-in extra pinned to the CPU wheel. GPU requires a manual CUDA wheel, then `--device cuda`.
 - **Logging**: `LOG_STREAM=stderr` keeps JSONL stdout clean; `winston` Google transports only when `GOOGLE_LOGS_FILE` is set.
@@ -113,7 +115,7 @@ TEST=true NODE_ENV=test JWT_SECRET=secret ./node_modules/.bin/mocha \
 ## Testing & QA
 
 - **Web**: mocha + chai, specs next to code as `*.spec.js`. The web harness requires `globals.js` and `shared/test-helper.js`; gulp targets only report pass/fail, so run mocha directly when exit codes matter.
-- **RL Node**: `npm run rl:test` runs `rl/node/**/*.spec.js` with `@babel/register` and `rl/node/test/setup.cjs` — Chai only, no JWT, no browser globals.
+- **RL Node**: `npm run rl:test` builds `dist/rl` and runs `rl/node/**/*.spec.js` with `@babel/register` and `rl/node/test/setup.cjs` — Chai only, no JWT, no browser globals. Source specs keep using Babel; `rl/node/test/worker.spec.js` spawns the compiled artifact with Bun for JSONL, smoke and replay parity.
 - **RL Python**: `pytest rl/python/tests`; fake-child transport tests plus policy/rollout unit tests. End-to-end checks use `pettingzoo.test.api_test` and `seed_test`.
 - **Determinism**: same seed plus same choices must produce identical state hashes; `observe`, catalog building and choice enumeration must not consume RNG/ids/clock.
 - **Behavioral gates**: environment specs cover terminal rewards, truncation, snapshot/restore, reset idempotence, scenario validation, linked traits and transient windows; the addon matrix covers all 128 addon subsets for 2–8 players.

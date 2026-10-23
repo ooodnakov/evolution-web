@@ -8,8 +8,9 @@ verified, which engine defects were fixed on the way, and what is still open.
 
 ```
 rl/schema.json                     observation / Frame / protocol contract
+rl/build.cjs                       AOT Babel build -> dist/rl (npm run rl:build)
 rl/node/
-  worker.cjs                       JSONL launcher (Babel, logs to stderr, --smoke)
+  worker.cjs                       JSONL launcher (plain CJS, logs to stderr, --smoke)
   environment.js                   reset/observe/step/snapshot/restore/replay
   decisions.js                     terminal/question/ambush/regeneration discovery
   store.js                         isolated store: games reducer + episode room slice
@@ -29,7 +30,31 @@ rl/python/evolution_rl/
   benchmark.py                     throughput measurements
   train_smoke.py                   CPU/GPU REINFORCE + value baseline smoke
 shared/actions/game-validation.js  pure staged request guards (shared with web)
+dist/rl/                           build artifact (gitignored): node/, shared/,
+                                   server/, schema.json; run by Bun, no Babel at runtime
 ```
+
+## Runtime and build
+
+- The RL engine runs on **Bun 1.4.4** from the compiled artifact
+  `dist/rl/node/worker.cjs`. Python `bridge.py`/`aec.py`, `rl:smoke`, rollouts,
+  benchmarks and training all launch that path; `runtime_executable` defaults to
+  `bun` and can be overridden explicitly.
+- `rl/build.cjs` compiles `shared/`, `server/` and `rl/node/` with the repository
+  `.babelrc` (`npm run rl:build`). ES5/CommonJS output is required: Immutable
+  3.8.2 `reify()` calls `iter.constructor(seq)`, so `class X extends Record(...)`
+  constructors must stay callable. Root imports (`~/...`) are rewritten against
+  `dist/rl`, and `node_modules` is resolved from the repository root; the build
+  does not copy it, nor `client/`, `rl/node/test` or `rl/runs`.
+- There is **no runtime Babel**: the worker and Python bridge report a missing
+  build (with `npm run rl:build`) or a missing Bun instead of falling back to
+  Node or to `@babel/register` on source. Rebuild after any change to the
+  compiled sources; `npm run clean` removes the artifact with the rest of `dist/`.
+- Web stays on Node 16 (`.nvmrc`, `engines`). Node 24 only runs the build and the
+  mocha specs. The `docs/rl/bun-worker.md` memo is the historical research
+  record for this decision; its pre-adoption "production runs Node" sections
+  are historical, and an adoption-status section at the top states the current
+  contract.
 
 ## Contracts
 
@@ -50,8 +75,9 @@ shared/actions/game-validation.js  pure staged request guards (shared with web)
 ## Commands
 
 ```bash
-npm run rl:test                    # 72 mocha specs, no web harness
-npm run rl:smoke                   # worker smoke, exits 0 on natural terminal
+npm run rl:build                   # compile shared/, server/, rl/node/ into dist/rl
+npm run rl:test                    # rl:build + mocha specs (incl. compiled Bun worker), no web harness
+npm run rl:smoke                   # rl:build + bun dist/rl/node/worker.cjs --smoke
 uv run --locked pytest rl/python/tests -q
 uv run --locked python -m evolution_rl.rollout --profile base --players 2 --episodes 100 --seed 0 --workers 2
 uv run --locked python -m evolution_rl.rollout --matrix full --seeds 0:0 --workers 8 \
@@ -73,12 +99,12 @@ TEST=true NODE_ENV=test JWT_SECRET=secret ./node_modules/.bin/mocha \
 
 | Check | Result |
 |---|---|
-| RL node specs | 72 passing |
-| Python specs | 49 passing |
+| RL node specs | 72 source specs; +3 compiled-Bun worker specs |
+| Python specs | 49 (pre-Bun); +3 bridge build/runtime contract cases |
 | Legacy shared suite | 415 passing, 7 pending |
 | PettingZoo `api_test` (400 cycles) | passed |
 | PettingZoo `seed_test` (100 cycles) | passed |
-| `rl:smoke` | natural terminal, 111 decisions |
+| `rl:smoke` (compiled Bun) | natural terminal, 111 decisions |
 | Base 2p random, seeds 0–19 | 20/20 natural terminals |
 | 8p all-addons survival | natural terminal, 0 errors |
 | Determinism (same seed + choices) | identical state hash, unaffected by an interleaved env |
@@ -118,3 +144,13 @@ TEST=true NODE_ENV=test JWT_SECRET=secret ./node_modules/.bin/mocha \
   error tests, but no deterministic scenario reproduces the rejection path.
 - GPU training is opt-in: the locked environment pins the CPU torch wheel, so
   `--device auto` resolves to cpu until a CUDA wheel is installed manually.
+- `dist/rl` is gitignored and is not rebuilt by the Python launch path. Forgetting
+  `npm run rl:build` after editing `shared/`, `server/` or `rl/node/` runs stale
+  code (or fails with the missing-build error on a fresh checkout); CI/setup must
+  build before Python rollouts, benchmarks, training or `rl:test`/`rl:smoke`.
+- Pre-existing AEC limitation (left unchanged by the Bun cutover): `restore()`
+  merges the frame's raw observations into its cache, so an inactive agent's
+  cached `action_mask` is `[]` where `reset`/`step` cache `[0]`. Engine state is
+  restored correctly (verified at the JSONL level); snapshot probes that compare
+  normalised AEC observations should either normalise both sides or reconstruct
+  the env after restore.

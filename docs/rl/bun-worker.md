@@ -1,11 +1,39 @@
 # Bun as a runtime for the RL worker — decision memo
 
-Status: research result, no production change. Production still runs `node rl/node/worker.cjs`
-(Node 24 + `@babel/register`). Nothing in `rl/`, `server/` or `shared/` was modified for
-this study; all probe code lived in `/tmp` trees and the full build script and recipe are
-reproduced below because `/tmp` does not survive a reboot.
+Status: **adopted** (2026-10-23). The RL engine now runs on Bun 1.4.4 from the
+compiled artifact `dist/rl/node/worker.cjs`, built by `npm run rl:build`
+(`rl/build.cjs`). The memo below is the research record that led to that decision;
+it was written before adoption at repo revision `d754cf3`, when production still ran
+`node rl/node/worker.cjs` (Node 24 + `@babel/register`) and no `rl/`, `server/` or
+`shared/` file was modified. Its measurements, limits and candidate routes are kept
+as written; the "migration effort" section is a plan, not a description of the code
+that was merged.
 
 Probed at repo revision `d754cf3`.
+
+## Adoption status
+
+- Build: `rl/build.cjs` -> `npm run rl:build` compiles `shared/`, `server/` and
+  `rl/node/` with the repository `.babelrc` into the gitignored `dist/rl`
+  (`node/`, `shared/`, `server/`, `schema.json`). `node_modules`, `client/`,
+  `rl/node/test` and `rl/runs` are not copied; the artifact resolves dependencies
+  from the repository root. `dist/server` and `dist/client` are untouched.
+- Runtime: `bun dist/rl/node/worker.cjs`. `rl:smoke`, the Python bridge/AEC,
+  rollouts, benchmarks and training all use it; `runtime_executable` defaults to
+  `bun`. No fallback to Node or to source-tree Babel; a missing build or missing
+  Bun produces an actionable error.
+- Source: `rl/node/worker.cjs` no longer installs `@babel/register`; the compiled
+  tree is CommonJS ES5, preserving the callable `Record`-subclass constructors
+  that immutable 3.8.2 `reify()` requires. Rebuild after changing `shared/`,
+  `server/` or `rl/node/`. Web stays on Node 16; Node 24 runs the build and specs.
+- Verification (2026-10-23): compiled Bun smoke 111 decisions, natural terminal;
+  `rl/node/test/worker.spec.js` covers smoke, JSONL to terminal and cross-process
+  replay parity from the artifact; default Python bridge 2p seed-0 episode
+  terminated naturally with identical frames/replay across two fresh Bun
+  processes; snapshot/restore reproduced the same continuation observations
+  (post-restore decision ids shift by +1, as recorded below); a plantarium
+  hidden-carnivorous plant attack raised a natural DEFENSE question with
+  `TraitShell` and decline options.
 
 ## Verdict
 
@@ -86,7 +114,8 @@ file that produced the smoke result here (`compiled 207 modules into …/build`,
 The only edit to copied source is stripping the now-redundant `loadBabelRegister();` call in
 `rl/node/worker.cjs`, because the build is already CommonJS ES5. **No source patch of any
 kind was needed**: the pristine `customff.js` import and the `extends Record(...)` classes
-work exactly as under Node, because both runtimes execute the same ES5 output.
+work exactly as under Node, because both runtimes execute the same ES5 output. (After
+adoption the call is gone from the source itself, so the artifact needs no rewriting.)
 
 ## Measurements
 
@@ -188,7 +217,7 @@ hashes — not on an identical post-restore replay stream.
 Process hygiene: every measured run ended with `close` → `{"closed":true}`, exit code 0,
 no trailing stdout bytes, and no non-JSON line on stdout.
 
-## Migration effort (concrete work, not an estimate)
+## Migration effort (concrete work, not an estimate — historical proposal)
 
 1. Add a build step that compiles `shared/`, `server/` and `rl/node/` with the repo
    `.babelrc` to a mirrored CJS tree (the tested script below), plus the
@@ -198,7 +227,8 @@ no trailing stdout bytes, and no non-JSON line on stdout.
    (`LAUNCHER_RELPATH = Path("rl") / "node" / "worker.cjs"`), `aec.py` (forwards
    `node_executable`), `rl/python/evolution_rl/__init__.py` (re-exports it). These are the
    launcher defaults; `package.json` scripts (`rl:smoke`) also name `node` explicitly, so
-   they need the same decision.
+   they need the same decision. (As merged, the launcher is
+   `dist/rl/node/worker.cjs`, the parameter is `runtime_executable` defaulting to `bun`.)
 3. Update `package.json` scripts and the mocha setup (`rl/node/test/setup.cjs`,
    `--require @babel/register`) so tests run against either the source tree or the build,
    never a mix. Note `rl:test` transpiles at test time; a build step must not silently change
@@ -209,9 +239,9 @@ no trailing stdout bytes, and no non-JSON line on stdout.
 5. Document the build artifact in `docs/commands.md` and leave the webpack server/client
    builds untouched (they already consume `shared/` through their own Babel/Webpack setup).
 
-Rollback: revert the launcher/runtime selection (`LAUNCHER_RELPATH`, the `node_executable`
-defaults, and the scripts changed in step 3) back to `node rl/node/worker.cjs`, and stop
-shipping the build tree. Both trees execute identical semantics by construction, but the
+Rollback: revert the launcher/runtime selection (`LAUNCHER_RELPATH`, the `runtime_executable`
+default, and the scripts changed in step 3) back to `node rl/node/worker.cjs`, and stop
+shipping the build tree (that also means restoring the source `@babel/register` install). Both trees execute identical semantics by construction, but the
 revert touches several call sites, so treat it as a small patch, not a one-line toggle.
 
 ## Limits of this evidence

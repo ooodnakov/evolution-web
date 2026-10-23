@@ -15,6 +15,8 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
+from . import bridge
+
 __all__ = [
     "EvolutionAECEnv",
     "env",
@@ -26,27 +28,27 @@ __all__ = [
 def raw_env(
     config: Mapping[str, Any] | None = None,
     render_mode: str | None = None,
-    node_executable: str = "node",
+    runtime_executable: str = bridge.DEFAULT_RUNTIME_EXECUTABLE,
 ) -> Any:
     """Create the unwrapped :class:`evolution_rl.aec.EvolutionAECEnv`."""
     from .aec import EvolutionAECEnv
 
     return EvolutionAECEnv(
-        config=config, render_mode=render_mode, node_executable=node_executable
+        config=config, render_mode=render_mode, runtime_executable=runtime_executable
     )
 
 
 def env(
     config: Mapping[str, Any] | None = None,
     render_mode: str | None = None,
-    node_executable: str = "node",
+    runtime_executable: str = bridge.DEFAULT_RUNTIME_EXECUTABLE,
 ) -> Any:
     """Create the AEC environment wrapped in ``OrderEnforcingWrapper``."""
     from pettingzoo.utils import OrderEnforcingWrapper
 
     return OrderEnforcingWrapper(
         raw_env(
-            config=config, render_mode=render_mode, node_executable=node_executable
+            config=config, render_mode=render_mode, runtime_executable=runtime_executable
         )
     )
 

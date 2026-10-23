@@ -12,6 +12,10 @@
  *
  * stdout carries protocol frames only. Anything human-readable goes to
  * stderr (LOG_STREAM=stderr is set before any application module loads).
+ *
+ * This file is plain CommonJS and runs from the compiled artifact only:
+ * `npm run rl:build` writes dist/rl, and the Python bridge and `rl:smoke`
+ * launch `bun dist/rl/node/worker.cjs`. There is no Babel hook at runtime.
  */
 
 process.env.LOG_STREAM = 'stderr';
@@ -30,25 +34,6 @@ const SCHEMA = JSON.parse(fs.readFileSync(SCHEMA_PATH, 'utf8'));
 const ERROR_CODES = new Set(SCHEMA.protocol.error_codes);
 const CONFIG_KEYS = ['numPlayers', 'addons', 'halfDeck', 'maxCards', 'randomPlayers', 'maxDecisions'];
 const KNOWN_ADDONS = new Set(SCHEMA.addons);
-
-function loadBabelRegister() {
-  const babelrcPath = path.join(REPO_ROOT, '.babelrc');
-  let babelrc = { presets: [], plugins: [] };
-  if (fs.existsSync(babelrcPath)) {
-    babelrc = JSON.parse(fs.readFileSync(babelrcPath, 'utf8'));
-  }
-  require('@babel/register')({
-    cwd: REPO_ROOT,
-    // The same .babelrc the web build uses, applied explicitly so the
-    // worker never depends on its own cwd for config discovery.
-    babelrc: false,
-    configFile: false,
-    presets: babelrc.presets || [],
-    plugins: babelrc.plugins || [],
-    extensions: ['.js'],
-    ignore: [/node_modules/],
-  });
-}
 
 function makeError(code, message) {
   const error = new Error(message);
@@ -135,8 +120,7 @@ function validateScenario(scenario) {
 
 function loadEnvironmentModule() {
   // Loaded lazily so that the "before hello" error path never touches the
-  // gameplay graph; @babel/register must be installed first.
-  loadBabelRegister();
+  // gameplay graph. The build has already compiled it to CommonJS.
   return require('./environment.js');
 }
 

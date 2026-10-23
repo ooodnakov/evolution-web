@@ -1,6 +1,7 @@
 # Performance ideas for RL workers
 
-Status: proposals. Nothing here is implemented yet; the mask/slot optimizations
+Status: proposals. Row 9 (precompiled RL modules) is implemented via
+`npm run rl:build` + Bun 1.4.4; the rest are not. The mask/slot optimizations
 in `e534a5e` are already in. Do not trade correctness for speed: no action
 caps, no oracle masks, no rule changes, no reduced observation schemas beyond
 the actor-only transfer the plan already allows.
@@ -26,7 +27,7 @@ the actor-only transfer the plan already allows.
 | 6 | Lazy level-by-level action enumeration | `rl/node/actions.js` `buildLeaves` materializes all leaves before filtering | 8p trait combinations can create thousands of leaves for tens of visible choices; generate only the next level with memoized completion search | Larger refactor; all pruning tests must still pass |
 | 7 | Optional "trust enumerator" mode for training | `leafAdmissible` runs `validateGameRequest` per candidate | Skips projection validation on hot paths | Never enable in correctness gates; an enumerator bug would no longer surface as `ENGINE_INVARIANT` |
 | 8 | Python transport trimming | `_cache_observations` normalizes every agent's dicts; catalog handshake per episode | Normalize only the requested agent, reuse catalog across episodes, use `orjson` for frame parse/dump | Optional dependency; protocol unchanged |
-| 9 | Precompile RL Node modules | Ship `dist/rl` built once with Babel; run plain Node | Removes `@babel/register` and transform cost from worker startup | Build step to maintain; must stay in sync with source |
+| 9 | Precompile RL Node modules (**implemented**: `npm run rl:build` -> `dist/rl`, run by Bun 1.4.4) | Ship `dist/rl` built once with Babel; run plain Node or Bun | Removes `@babel/register` and transform cost from worker startup | Build step to maintain; rebuild after source changes |
 
 ## Measurement protocol
 

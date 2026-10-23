@@ -83,7 +83,7 @@ def _merged_config(config: Mapping[str, Any] | None) -> dict[str, Any]:
 
 
 class EvolutionAECEnv(AECEnv):
-    """AEC environment backed by one long-lived ``rl/node/worker.cjs``."""
+    """AEC environment backed by one long-lived compiled worker (Bun)."""
 
     metadata = {
         "name": "evolution_aec",
@@ -95,7 +95,7 @@ class EvolutionAECEnv(AECEnv):
         self,
         config: Mapping[str, Any] | None = None,
         render_mode: str | None = None,
-        node_executable: str = "node",
+        runtime_executable: str = bridge.DEFAULT_RUNTIME_EXECUTABLE,
     ) -> None:
         super().__init__()
         if render_mode is not None and render_mode not in self.metadata["render_modes"]:
@@ -105,7 +105,7 @@ class EvolutionAECEnv(AECEnv):
             )
         self.config = _merged_config(config)
         self.render_mode = render_mode
-        self.node_executable = node_executable
+        self.runtime_executable = runtime_executable
 
         num_players = int(self.config["numPlayers"])
         self.possible_agents = [f"player_{seat}" for seat in range(num_players)]
@@ -133,7 +133,7 @@ class EvolutionAECEnv(AECEnv):
     def _ensure_engine(self) -> EngineProcess:
         if self._engine is None:
             self._engine = EngineProcess(
-                node_executable=self.node_executable,
+                runtime_executable=self.runtime_executable,
                 config=self.config,
             )
             self.catalog = self._engine.catalog

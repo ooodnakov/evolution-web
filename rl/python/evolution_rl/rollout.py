@@ -2,7 +2,8 @@
 
 Runs complete AEC episodes with one of the baseline policies, optionally in
 parallel worker environments.  The engine is never shared between threads:
-each in-flight episode owns its own ``worker.cjs`` subprocess.
+each in-flight episode owns its own compiled ``dist/rl/node/worker.cjs``
+subprocess running under Bun.
 
 Output is a single JSON document on stdout so the driver can be scripted.
 Truncations and engine errors are reported as such and never counted as a

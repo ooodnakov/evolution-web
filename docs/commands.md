@@ -18,8 +18,9 @@ reference for what each one does.
 | `npm run test:client[:once]` | gulp client specs |
 | `npm run test:server[:once]` | gulp server specs |
 | `npm run test:all[:once]` | gulp shared + client + server |
-| `npm run rl:smoke` | `node rl/node/worker.cjs --smoke` |
-| `npm run rl:test` | mocha over `rl/node/**/*.spec.js` with `@babel/register` and `rl/node/test/setup.cjs` |
+| `npm run rl:build` | compile `shared/`, `server/` and `rl/node/` into the ignored `dist/rl` artifact |
+| `npm run rl:smoke` | `rl:build`, then `bun dist/rl/node/worker.cjs --smoke` |
+| `npm run rl:test` | `rl:build`, then mocha over `rl/node/**/*.spec.js` with `@babel/register` and `rl/node/test/setup.cjs` |
 | `npm run heroku-postbuild` | alias for `build` on deploy |
 
 Notes:
@@ -28,15 +29,26 @@ Notes:
   when the exit code matters.
 - `rl:test` deliberately avoids `globals.js`, `shared/test-helper.js` and JWT,
   so a regression in the headless boundary fails the test.
+- `rl:build` writes only `dist/rl` (webpack owns `dist/server` and `dist/client`).
+  The Python bridge and `rl:smoke` run `bun dist/rl/node/worker.cjs`; there is no
+  Babel hook at runtime, so **rebuild after any source change** to `shared/`,
+  `server/` or `rl/node/`. `npm run clean` removes the artifact as well.
+- Bun 1.4.4 is required for the RL worker. The web app stays on Node 16
+  (`.nvmrc`); Node 24 runs the Babel build and the mocha specs.
 - Python has no npm wrapper: use `uv run --locked ...` (see below).
 
 ## Setup
 
 ```bash
 npm ci --ignore-scripts            # JS deps from package-lock.json
+npm run rl:build                   # compile the RL worker into dist/rl (Bun runtime)
 uv sync --locked                   # Python 3.11, no torch
 uv sync --locked --extra train     # + CPU torch for training/benchmark
 ```
+
+Bun 1.4.4 must be on `PATH` for `rl:smoke`, the Python bridge/AEC, rollouts,
+benchmarks and training. Missing build and missing runtime are reported with
+the command to run; nothing falls back to Node or to source-tree Babel.
 
 ## Web app
 
@@ -69,10 +81,15 @@ TEST=true NODE_ENV=test JWT_SECRET=secret ./node_modules/.bin/mocha \
 ## RL tests
 
 ```bash
-npm run rl:test                                  # rl/node/**/*.spec.js
-npm run rl:smoke                                 # one worker smoke run
+npm run rl:build                                 # dist/rl (also run by rl:test/rl:smoke)
+npm run rl:test                                  # build + rl/node/**/*.spec.js (incl. compiled Bun worker)
+npm run rl:smoke                                 # build + one Bun worker smoke run
 uv run --locked pytest rl/python/tests -q        # transport/policy/rollout tests
 ```
+
+The Node specs still run against source through `@babel/register`; the worker
+subprocess spec (`rl/node/test/worker.spec.js`) spawns the compiled artifact
+with Bun, so `rl:test` builds first.
 
 PettingZoo conformance:
 
@@ -117,7 +134,7 @@ Monitor and stop:
 ```bash
 tail -f /tmp/matrix_00.err | grep --line-buffered progress
 watch -n 5 'jq "{done,total,eta_seconds,counts}" rl/runs/matrix_00_status.json'
-pkill -f "rl/node/worker.cjs"
+pkill -f "dist/rl/node/worker.cjs"
 ```
 
 Keep the machine responsive: `nice -n 19 ...`, and pick `--workers` below the core count.
@@ -163,13 +180,13 @@ Training artifacts: `rl/runs/smoke/report.json`, `rl/runs/smoke/checkpoint.pt`.
 ```bash
 RL_DEBUG=1 uv run --locked python -m evolution_rl.rollout --profile base --episodes 1   # engine stack traces on stderr
 LOG_LEVEL=debug npm run start                                                          # web logging
-node rl/node/worker.cjs --smoke | jq '{ok,decisions,terminated,truncated}'             # worker only
+bun dist/rl/node/worker.cjs --smoke | jq '{ok,decisions,terminated,truncated}'         # worker only (after rl:build)
 ```
 
 ## Cleanup
 
 ```bash
 rm -rf rl/runs                 # generated checkpoints, reports, matrix status
-pkill -f "rl/node/worker.cjs"  # stale engine processes
+pkill -f "dist/rl/node/worker.cjs"  # stale engine processes
 git status --short
 ```

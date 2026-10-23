@@ -30,8 +30,9 @@
     "test:server": "npx gulp test:server",
     "test:all:once": "npx gulp test:all:once",
     "test:all": "npx gulp test:all",
-    "rl:smoke": "node rl/node/worker.cjs --smoke",
-    "rl:test": "mocha --require @babel/register --require rl/node/test/setup.cjs \"rl/node/**/*.spec.js\""
+    "rl:build": "node rl/build.cjs",
+    "rl:smoke": "npm run rl:build && bun dist/rl/node/worker.cjs --smoke",
+    "rl:test": "npm run rl:build && mocha --require @babel/register --require rl/node/test/setup.cjs \"rl/node/**/*.spec.js\""
   },
   "repository": {
     "type": "git",

@@ -270,6 +270,30 @@ def test_missing_launcher_raises_engine_not_found(tmp_path: Path) -> None:
     assert excinfo.value.code == "ENGINE_NOT_FOUND"
 
 
+def test_default_runtime_and_launcher_target_the_compiled_build() -> None:
+    assert bridge.DEFAULT_RUNTIME_EXECUTABLE == "bun"
+    assert bridge.LAUNCHER_RELPATH == Path("dist") / "rl" / "node" / "worker.cjs"
+
+
+def test_missing_build_points_at_the_build_command(tmp_path: Path) -> None:
+    with pytest.raises(EngineProcessError) as excinfo:
+        EngineProcess(repo_root=tmp_path)
+    assert "npm run rl:build" in excinfo.value.message
+
+
+def test_missing_runtime_raises_engine_runtime_not_found(tmp_path: Path) -> None:
+    launcher = tmp_path / bridge.LAUNCHER_RELPATH
+    launcher.parent.mkdir(parents=True)
+    launcher.write_text("// compiled worker stub\n", encoding="utf-8")
+    schema = tmp_path / bridge.SCHEMA_RELPATH
+    schema.parent.mkdir(parents=True)
+    schema.write_text("{}", encoding="utf-8")
+    with pytest.raises(EngineProcessError) as excinfo:
+        EngineProcess(repo_root=tmp_path, runtime_executable="definitely-not-bun-1-4-4")
+    assert excinfo.value.code == "ENGINE_RUNTIME_NOT_FOUND"
+    assert "npm run rl:build" in excinfo.value.message
+
+
 def test_missing_repo_root_raises_engine_not_found(tmp_path: Path) -> None:
     with pytest.raises(EngineProcessError) as excinfo:
         EngineProcess(repo_root=tmp_path / "does-not-exist")
