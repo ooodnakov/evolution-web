@@ -4,6 +4,7 @@
 - [`rl/plan.md`](rl/plan.md) — approved full plan for the RL environment (scope, constraints, waves, acceptance gates).
 - [`rl/implementation-notes.md`](rl/implementation-notes.md) — what was built, verification results, engine defects fixed, known gaps.
 - [`rl/performance-ideas.md`](rl/performance-ideas.md) — ranked, measured-baseline ideas for speeding up the RL workers.
+- [`rl/bun-worker.md`](rl/bun-worker.md) — Bun vs Node decision memo for the RL worker: why the native swap is blocked, the precompiled route, measured startup/step/episode timings and determinism parity.
 - [`research/README.md`](research/README.md) — index of architecture, training, framework and evaluation research.
 - [`research/architecture.md`](research/architecture.md) — model architecture study.
 - [`research/training.md`](research/training.md) — training algorithm and self-play study.
